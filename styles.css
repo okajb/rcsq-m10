@@ -41,3 +41,6 @@ html{background:#07142a}body{background:#07142a}
 .live-entry{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:12px 0 18px}.live-entry .hint{flex:1;min-width:160px}.live-share{display:flex;flex-wrap:wrap;gap:8px}.live-match-title{margin:18px 0 16px}.live-player{display:block}.live-player .stat-actions{margin-top:12px}.live-player .stat-actions button{min-width:120px}
 
 .live-stats{display:grid;gap:7px;margin-top:12px}.live-stat-row{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid #ffffff18;padding:7px 0}.live-stat-row span{font-size:14px}.live-stat-buttons{display:flex;gap:7px}.live-stat-buttons .button{min-width:44px;padding:7px 12px;font-size:19px}
+
+/* QR code parent assistant, generated locally with no third-party service */
+.qr-wrap{background:white;display:flex;justify-content:center;align-items:center;border-radius:18px;padding:15px;margin:16px auto;width:fit-content;max-width:100%}.qr-wrap svg{max-width:100%;height:auto;image-rendering:pixelated}.live-share{flex-wrap:wrap;gap:8px}.live-share button{white-space:normal}

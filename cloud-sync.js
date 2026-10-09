@@ -7,6 +7,9 @@
  const BASE = ['teams',TEAM];
  let firebaseApp, authMod, fsMod, auth, database;
  let user = null, role = null, ready = false, lastError = '';
+ let guestExpiryTimer=null;
+ let guestMatchId=null, pendingToken=(location.hash.match(/^#invite=([a-f0-9]{48})$/)||[])[1]||null;
+ const activeInvites=new Map(); let unsubscribeInvites=null;
  let unsubscribeMatches = null, unsubscribeAuth = null;
  let changeCallback = () => {}, updateCallback = () => {};
  const listeners = new Map(), matches = new Map(), matchEvents = new Map(), scores = new Map();
@@ -27,7 +30,9 @@
  const notify = () => {try {changeCallback()}catch(e){console.warn('Cloud display',e)}};
  const fail = err => {lastError = (err && err.message) || String(err);notify();};
  function clearListeners() {
+  if(guestExpiryTimer){clearTimeout(guestExpiryTimer);guestExpiryTimer=null;}
   if(unsubscribeMatches) {unsubscribeMatches();unsubscribeMatches=null;}
+  if(unsubscribeInvites){unsubscribeInvites();unsubscribeInvites=null;} activeInvites.clear();
   for(const off of listeners.values())off();listeners.clear();
   matches.clear();matchEvents.clear();scores.clear();notify();
  }
@@ -56,7 +61,50 @@
   try{updateCallback(id,result)}catch(e){console.warn('Cloud update',e)}
   notify();
  }
- function observeMatches(){
+ function guestAccessStopped(){
+  clearListeners();guestMatchId=null;role=null;
+  lastError='Invitation révoquée ou expirée. Demande un nouveau QR code.';notify();
+}
+function watchGuestInvite(token){
+  listeners.set('guest-invite',fsMod.onSnapshot(fsMod.doc(database,...BASE,'invites',token), snapshot=>{
+    if(!snapshot.exists()||!snapshot.data().active){guestAccessStopped();return;}
+    if(guestExpiryTimer)clearTimeout(guestExpiryTimer);
+    const remaining=snapshot.data().expiresAt.toMillis()-Date.now();
+    if(remaining<=0){guestAccessStopped();return;}
+    guestExpiryTimer=setTimeout(guestAccessStopped,remaining+1000);
+  },()=>guestAccessStopped()));
+}
+function observeGuest(matchId,token){
+  watchGuestInvite(token);
+  guestMatchId=matchId;
+  const unsub=fsMod.onSnapshot(docForMatch(matchId), snap=>{
+    if(!snap.exists()){fail(Error('Match indisponible ou invitation expirée.'));return;}
+    matches.set(matchId,snap.data());
+    rebuildMatch(matchId); notify();
+  },fail);
+  listeners.set('guest-match',unsub);
+  const eventsOff=fsMod.onSnapshot(eventsForMatch(matchId), snap=>{
+    matchEvents.set(matchId,snap.docs.map(x=>x.data()));rebuildMatch(matchId);
+  },fail);
+  listeners.set('guest-events',eventsOff);
+}
+function observeInvites(){
+  unsubscribeInvites=fsMod.onSnapshot(fsMod.collection(database,...BASE,'invites'), snapshot=>{
+    activeInvites.clear();for(const doc of snapshot.docs)activeInvites.set(doc.id,doc.data());notify();
+  },fail);
+}
+async function acceptInvite(token){
+  const ref=fsMod.doc(database,...BASE,'invites',token);
+  const snapshot=await fsMod.getDoc(ref);
+  if(!snapshot.exists()||!snapshot.data().active||snapshot.data().expiresAt.toMillis()<=Date.now())throw Error('Invitation expirée ou révoquée. Demande un nouveau QR code.');
+  const matchId=snapshot.data().matchId;
+  const myGrant=fsMod.doc(database,...BASE,'guests',user.uid);
+  await fsMod.setDoc(myGrant,{token,matchId,joinedAt:fsMod.serverTimestamp()});
+  pendingToken=null;
+  if(location.hash.startsWith('#invite='))history.replaceState(null,'',location.pathname+location.search);
+  role='guest';observeGuest(matchId,token);notify();
+}
+function observeMatches(){
   if(unsubscribeMatches){unsubscribeMatches();unsubscribeMatches=null}
   unsubscribeMatches=fsMod.onSnapshot(fsMod.collection(database,...BASE,'matches'),snapshot=>{
    const fresh=new Set();
@@ -86,19 +134,53 @@
    const app=firebaseApp.initializeApp({apiKey:cfg.apiKey,authDomain:cfg.authDomain,projectId:cfg.projectId,appId:cfg.appId});
    auth=authMod.getAuth(app);database=fsMod.getFirestore(app);ready=true;
    unsubscribeAuth=authMod.onAuthStateChanged(auth,async u=>{
-    clearListeners();user=u;role=null;lastError='';
+    clearListeners();user=u;role=null;guestMatchId=null;lastError='';
     if(u){
      try{
       const profile=await fsMod.getDoc(fsMod.doc(database,...BASE,'members',u.uid));
       role=['admin','assistant'].includes(profile.data()?.role)?profile.data().role:null;
-      if(role)observeMatches();
+      if(role){observeMatches();observeInvites();}
+      else if(pendingToken){await acceptInvite(pendingToken);}
+      else {
+        const guestDoc=await fsMod.getDoc(fsMod.doc(database,...BASE,'guests',u.uid));
+        if(guestDoc.exists()){
+          const gd=guestDoc.data();
+          if(gd.token&&gd.matchId){
+            const inv=await fsMod.getDoc(fsMod.doc(database,...BASE,'invites',gd.token));
+            if(inv.exists()&&inv.data().active&&inv.data().expiresAt.toMillis()>Date.now()){
+              role='guest';observeGuest(gd.matchId,gd.token);
+            }
+          }
+        }
+      }
      }catch(e){fail(e)}
     }
     notify();
    },fail);
+   if(pendingToken && !auth.currentUser) {
+     try{await authMod.signInAnonymously(auth)}catch(e){fail(Error('Active « Anonyme » dans Firebase Authentication pour les parents : '+e.message));}
+   }
   }catch(e){fail(e)}
  }
- async function login(email,password){
+ async function createInvite(matchId){
+  if(!ready || role!=='admin')throw Error('Connecte-toi avec le compte administrateur.');
+  if(!matches.has(matchId)) {
+    const doc=await fsMod.getDoc(docForMatch(matchId));
+    if(!doc.exists())throw Error('Partage d’abord ce mini-match en direct.');
+  }
+  const random=new Uint8Array(24);crypto.getRandomValues(random);
+  const token=Array.from(random,x=>x.toString(16).padStart(2,'0')).join('');
+  const expiry=fsMod.Timestamp.fromMillis(Date.now()+8*60*60*1000);
+  await fsMod.setDoc(fsMod.doc(database,...BASE,'invites',token),{
+    matchId,active:true,createdAt:fsMod.serverTimestamp(),createdBy:user.uid,expiresAt:expiry
+  });
+  return location.origin + location.pathname + '#invite=' + token;
+}
+async function revokeInvite(token){
+  if(role!=='admin')throw Error('Accès réservé au coach.');
+  await fsMod.updateDoc(fsMod.doc(database,...BASE,'invites',token),{active:false});
+}
+async function login(email,password){
   if(!ready)throw Error('Connexion Firebase indisponible. Vérifie la configuration et le réseau.');
   await authMod.signInWithEmailAndPassword(auth,String(email).trim(),password);
  }
@@ -127,8 +209,8 @@
   }else throw Error('Événement inconnu.');
   await fsMod.addDoc(eventsForMatch(matchId),eventData);
  }
- window.RCSQLive={start,login,logout,publish,record,
-  get configured(){return configurationValid},get ready(){return ready},get role(){return role},get email(){return user?.email||''},get signedIn(){return !!user},get error(){return lastError},
+ window.RCSQLive={start,login,logout,publish,record,createInvite,revokeInvite,
+  get configured(){return configurationValid},get ready(){return ready},get role(){return role},get email(){return user?.email||''},get signedIn(){return !!user},get error(){return lastError},get invitePending(){return !!pendingToken},get guestMatchId(){return guestMatchId},get invites(){return [...activeInvites.entries()].map(([id,data])=>({id,...data}))},
   get matches(){return [...matches.entries()].map(([id,data])=>({id,...data,score:scores.get(id)||{homeScore:asInt(data.homeScore),awayScore:asInt(data.awayScore),stats:cleanStat(data.stats)}})).sort((a,b)=>b.date.localeCompare(a.date))},
   hasMatch(id){return matches.has(id)}
  };

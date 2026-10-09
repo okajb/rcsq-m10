@@ -14,6 +14,29 @@ service cloud.firestore {
     function isAdmin(teamId) {
       return isMember(teamId) && get(memberPath(teamId)).data.role == 'admin';
     }
+
+    function invitePath(teamId, token) {
+      return /databases/$(database)/documents/teams/$(teamId)/invites/$(token);
+    }
+    function guestPath(teamId) {
+      return /databases/$(database)/documents/teams/$(teamId)/guests/$(request.auth.uid);
+    }
+    function validInvitation(teamId, token, matchId) {
+      return signedIn()
+        && exists(invitePath(teamId, token))
+        && get(invitePath(teamId, token)).data.active == true
+        && get(invitePath(teamId, token)).data.expiresAt > request.time
+        && get(invitePath(teamId, token)).data.matchId == matchId;
+    }
+    function isGuestOf(teamId, matchId) {
+      return signedIn()
+        && exists(guestPath(teamId))
+        && get(guestPath(teamId)).data.matchId == matchId
+        && validInvitation(teamId, get(guestPath(teamId)).data.token, matchId);
+    }
+    function canAccessMatch(teamId, matchId) {
+      return isMember(teamId) || isGuestOf(teamId, matchId);
+    }
     match /teams/{teamId} {
       allow read, write: if false;
       match /members/{memberUid} {
@@ -22,8 +45,43 @@ service cloud.firestore {
         allow get: if signedIn() && (request.auth.uid == memberUid || isAdmin(teamId));
         allow list, create, update, delete: if false;
       }
+
+      match /invites/{token} {
+        // L'URL/QR contient un jeton aléatoire de 192 bits; aucune énumération des jetons.
+        allow get: if isAdmin(teamId) || (signedIn()
+          && resource.data.active == true && resource.data.expiresAt > request.time);
+        allow list: if isAdmin(teamId);
+        allow create: if isAdmin(teamId)
+          && token.matches('^[a-f0-9]{48}$')
+          && request.resource.data.keys().hasOnly(['matchId','active','createdAt','createdBy','expiresAt'])
+          && exists(/databases/$(database)/documents/teams/$(teamId)/matches/$(request.resource.data.matchId))
+          && request.resource.data.active == true
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.expiresAt is timestamp
+          && request.resource.data.expiresAt > request.time
+          && request.resource.data.expiresAt <= request.time + duration.value(12, 'h');
+        // Révocation possible, aucune extension de durée ni modification d'un autre champ.
+        allow update: if isAdmin(teamId)
+          && resource.data.active == true
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active'])
+          && request.resource.data.active == false;
+        allow delete: if false;
+      }
+      match /guests/{guestUid} {
+        allow get: if signedIn() && (request.auth.uid == guestUid || isAdmin(teamId));
+        allow list, delete: if false;
+        allow create, update: if signedIn() && request.auth.uid == guestUid
+          && request.resource.data.keys().hasOnly(['token','matchId','joinedAt'])
+          && request.resource.data.token is string
+          && request.resource.data.token.matches('^[a-f0-9]{48}$')
+          && request.resource.data.matchId is string
+          && request.resource.data.joinedAt == request.time
+          && validInvitation(teamId, request.resource.data.token, request.resource.data.matchId);
+      }
       match /matches/{matchId} {
-        allow get, list: if isMember(teamId);
+        allow get: if canAccessMatch(teamId, matchId);
+        allow list: if isMember(teamId);
         allow create: if isAdmin(teamId)
           && request.resource.data.keys().hasOnly(['title','opponent','date','format','roster','homeScore','awayScore','stats','createdBy','createdAt'])
           && request.resource.data.createdBy == request.auth.uid
@@ -39,8 +97,8 @@ service cloud.firestore {
         // Pour éviter les suppressions accidentelles, le partage n'est pas modifiable depuis l'application.
         allow update, delete: if false;
         match /events/{eventId} {
-          allow get, list: if isMember(teamId);
-          allow create: if isMember(teamId)
+          allow get, list: if canAccessMatch(teamId, matchId);
+          allow create: if canAccessMatch(teamId, matchId)
             && exists(/databases/$(database)/documents/teams/$(teamId)/matches/$(matchId))
             && request.resource.data.keys().hasOnly(['actor','createdAt','kind','delta','side','playerId','stat'])
             && request.resource.data.actor == request.auth.uid

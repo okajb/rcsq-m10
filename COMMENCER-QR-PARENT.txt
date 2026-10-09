@@ -1,0 +1,17 @@
+RCSQ M10 — Invitation parent sans e-mail — Mode QR code (0 €)
+
+ORDRE IMPORTANT :
+1. Sur ton iPhone, exporter une sauvegarde PRIVÉE dans Réglages. Ne jamais l’envoyer sur GitHub.
+2. Dans Firebase > Authentication > Méthode de connexion > Ajouter un fournisseur > « Anonyme » > Activer > Enregistrer. Ton compte e-mail/mot de passe reste activé.
+3. Dans Firebase > Cloud Firestore > Règles, remplacer toutes les règles par firestore.rules livré ici, puis publier. Faire cette étape avant de déposer les nouveaux fichiers.
+4. Sur GitHub > okajb/rcsq-m10 > Ajouter un fichier > Téléverser des fichiers : glisser le CONTENU de ce dossier (pas le dossier), puis valider. Attention : cela remplace le code mais ne publie aucune fiche privée.
+5. Sur l’iPhone coach, ouvrir RCSQ M10 > Plateaux > Statistiques en direct et se connecter avec le compte ADMIN. Ouvrir le mini-match à suivre, toucher « Inviter parent (QR) » ; partager ou montrer le QR.
+6. Le parent scanne le QR depuis l’appareil photo de son téléphone et ouvre le lien dans son navigateur. Il voit uniquement les prénoms et les statistiques du mini-match. Pas d’e-mail, pas de mot de passe, pas besoin d’installer l’app ni de fichier de joueurs.
+7. Dans Statistiques en direct (ADMIN), révoquer l’invitation pour couper l’accès (la révocation empêche les nouvelles lectures/écritures côté serveur, même si d’anciennes informations affichées restent visibles).
+
+Un QR code donne un accès temporaire à celui qui détient le lien. Ne le partage pas publiquement. Durée maximum 8 h, vérifiée par le serveur. Pour chaque plateau, crée un nouveau QR code.
+
+ATTENTION : chronomètre et remplacements restent sur l’iPhone du coach. Le parent note essais, plaquages, passes décisives, soutiens et récupérations. Les statistiques sont synchronisées via Firebase.
+
+Si tu rencontres une erreur « permission-denied », vérifier d’abord les règles publiées et que « Anonyme » est activé.
+Les statistiques du match (prénoms et actions sportives, y compris celles des mineurs) deviennent accessibles aux personnes invitées ; obtenir l’accord approprié du club et des parents.
