@@ -52,10 +52,15 @@ La couverture publique contient une **illustration stylisée de groupe** validé
 
 ## 5. Logo officiel et personnalisation
 
-`assets/logo-application.svg` est un badge graphique de l'app RCSQ M10 inspiré du club ; il ne prétend pas reproduire son écusson officiel. Dans Réglages, touche **Ajouter / changer le logo RCSQ** pour intégrer le vrai logo en privé. Quand son fichier source est disponible, il est aussi possible de l'intégrer dans une nouvelle version publique.
+`assets/logo-officiel-rcsq.jpg` est le blason officiel transmis pour le club. Il est affiché par défaut dans l’en-tête et les nouvelles icônes de l’application. Le réglage d’un logo personnalisé sur le téléphone reste prioritaire si tu en avais déjà importé un.
 
 ## 6. Tester avant de publier
 
 Sur ton ordinateur, dans le dossier décompressé, tu peux lancer `python3 -m http.server 8000` puis ouvrir `http://localhost:8000`. L'application doit afficher la couverture et les menus même sans import des fiches.
 
 © Carnet coach RCSQ M10 · Saison 2026–2027
+
+
+## Version blason officiel (octobre 2026)
+
+Le blason officiel transmis a été ajouté à l’en-tête, au favicon, au manifeste PWA et aux icônes Apple. Les fonctions et le stockage local des joueurs et présences ne sont pas modifiés. Les icônes iOS déjà installées peuvent rester temporairement en cache : ne désinstalle pas l’app pour les forcer, sinon tu risques de perdre les données locales.

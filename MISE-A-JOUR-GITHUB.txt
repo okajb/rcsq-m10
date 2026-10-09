@@ -1,45 +1,13 @@
-RCSQ M10 — MISE À JOUR « TEMPS DE JEU » — 10/10/2026
+RCSQ M10 — MISE À JOUR DU BLASON OFFICIEL
 
-IMPORTANT AVANT DE REMPLACER LES FICHIERS :
-1. Sur l'iPhone, ouvrir L'ICÔNE RCSQ M10 > Réglages.
-2. Appuyer sur « Exporter une sauvegarde privée ».
-3. Conserver ce fichier JSON dans Fichiers (ou autre emplacement privé).
-   NE JAMAIS envoyer cette sauvegarde sur GitHub : elle contient les fiches des enfants.
+1. AVANT TOUT : sur l’icône RCSQ M10 de ton iPhone, ouvre Réglages puis « Exporter une sauvegarde privée ». Conserve le fichier JSON dans un emplacement sûr. NE LE METS PAS SUR GITHUB.
+2. Sur Mac, décompresse ce ZIP.
+3. Ouvre https://github.com/okajb/rcsq-m10 et clique sur « Ajouter un fichier » > « Téléverser des fichiers ».
+4. Glisse TOUT LE CONTENU de ce dossier, pas le dossier lui-même : index.html, app.js, sw.js, manifest.webmanifest, styles.css, dossiers assets et icons, etc. Les fichiers portant le même nom remplaceront les anciens.
+5. Valide les modifications. GitHub Pages se met à jour après quelques minutes.
+6. Sur l’iPhone, ouvre https://okajb.github.io/rcsq-m10/ dans Safari et recharge la page ; puis ferme et relance l’application déjà installée.
+7. Le logo officiel doit apparaître dans la barre d’en-tête et dans les nouvelles icônes. Si tu avais ajouté un logo personnalisé dans Réglages, il peut rester affiché à la place du logo par défaut.
 
-MISE À JOUR DU DÉPÔT EXISTANT (SANS LE SUPPRIMER) :
-1. Sur le Mac, décompresser le présent ZIP.
-2. Ouvrir https://github.com/okajb/rcsq-m10
-3. Aller sur l'onglet Code > Ajouter un fichier > Télécharger des fichiers.
-4. Glisser tout le CONTENU du dossier décompressé : index.html, app.js,
-   styles.css, sw.js, manifest.webmanifest, dossiers assets et icons, etc.
-   Les fichiers portant le même nom sont remplacés dans le dépôt.
-   index.html doit être directement à la racine du dépôt.
-5. Cliquer sur « Commit changes » (Valider les modifications).
-6. ATTENDRE 2 À 5 MINUTES le déploiement GitHub Pages.
-7. Ouvrir https://okajb.github.io/rcsq-m10/ dans Safari, actualiser si besoin.
-8. Fermer puis rouvrir l'icône RCSQ M10 sur l'iPhone ; au besoin relancer
-   une deuxième fois après que Safari a actualisé le site.
-9. Vérifier les fiches et les présences : ne PAS réimporter l'ancien JSON,
-   sauf si une restauration est nécessaire ; une importation remplace les
-   données et donc les nouvelles statistiques.
+IMPORTANT : ne désinstalle surtout pas l’application, ne vide pas Safari et ne réimporte pas le vieux fichier privé si tes données actuelles ont changé. La nouvelle version n’efface pas l’effectif ni les présences. Il est possible que l’icône déjà installée sur l’écran d’accueil iOS mette du temps à se rafraîchir.
 
-NOUVEAUTÉS :
-- Sous chaque joueur en composition : statut « Sur le terrain » ou
-  « Remplaçant » et temps cumulé pour ce mini-match, mis à jour en direct.
-- Le chronomètre ne compte que les joueurs présents sur le terrain : à la
-  sortie il se fige, et à l'entrée il reprend.
-- La fiche joueur affiche le temps total de la saison (tous mini-matchs).
-- Pause du mini-match = pause de tous les chronomètres individuels.
-- Retour à un autre écran ou mise en arrière-plan = arrêt/pause du chrono.
-- Le bouton « Remise à zéro » efface le chrono ET les temps de jeu du match
-  après confirmation, sans toucher aux présences ni aux scores.
-- Supprimer un mini-match retire ses minutes du cumul de saison.
-- Les ANCIENS mini-matchs restent présents, mais leurs temps individuels
-  commencent à zéro : ces données n'étaient pas suivies auparavant.
-
-CONFIDENTIALITÉ :
-Ce ZIP ne contient PAS les fiches privées, photos individuelles ou licences
-FFR des 11 enfants. L'application conserve ses informations dans le
-stockage local IndexedDB de la même adresse sur ce même appareil.
-Un navigateur différent, une réinstallation ou la suppression des données
-locales peut les faire disparaître. Toujours garder une sauvegarde privée.
+Cette archive NE CONTIENT PAS les photos individuelles ou licences FFR des enfants.
