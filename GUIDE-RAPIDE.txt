@@ -1,3 +1,7 @@
+VERSION 2 : TEMPS DE JEU INDIVIDUEL
+Si ton application est déjà en ligne, lis MISE-A-JOUR-GITHUB.txt.
+Sauvegarde les données privées depuis Réglages AVANT de publier la mise à jour.
+
 RCSQ M10 – MISE EN LIGNE SIMPLE
 
 1. Décompresse le ZIP PUBLIC.

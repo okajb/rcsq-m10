@@ -27,3 +27,12 @@ html{background:#07142a}body{background:#07142a}
 :focus-visible{outline-color:#ffd94f}
 @media(max-width:830px){.quick-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.welcome{align-items:stretch;flex-direction:column}}
 @media(max-width:520px){.hero{min-height:345px;padding:23px 19px;background-position:50% 30%}.hero h1{font-size:49px}.hero p{font-size:13px}.hero .eyebrow{font-size:9px;letter-spacing:1.6px}.quick-grid{gap:10px}.quick-card{min-height:132px;padding:16px}.quick-title{font-size:15px}.quick-desc{font-size:11px}.quick-icon{font-size:23px}.quick-arrow{right:14px;bottom:13px}.welcome h2{font-size:20px}.top-chip{display:none}}
+
+/* V2 - Chronomètre individuel dans chaque composition et total saison */
+.lineup-btn{min-height:69px;touch-action:manipulation}
+.lineup-btn .lineup-status{display:flex;align-items:center;flex-wrap:wrap;justify-content:space-between;gap:4px 7px;font-size:11px;margin-top:7px}
+.lineup-time{display:inline-block;color:#fff7bb;font-size:12px;font-weight:850;letter-spacing:.2px;font-variant-numeric:tabular-nums;background:#ffffff19;padding:3px 6px;border-radius:7px}
+.lineup-btn.selected .lineup-time{background:#003b318f;color:#fff2a1}
+.profile-detail .playtotal{grid-column:1/-1;background:linear-gradient(135deg,#183e50,#1a4b42);border-color:#e6c35366}
+.profile-detail .playtotal strong{font-size:22px;font-variant-numeric:tabular-nums;color:#ffdf61}
+.profile-detail .playtotal small{display:block;color:#b2d2ce;font-size:11px;margin-top:5px}

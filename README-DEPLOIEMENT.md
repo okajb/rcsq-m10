@@ -1,3 +1,11 @@
+# RCSQ M10 — Version 2 : temps de jeu individuel
+
+**Déjà installé sur GitHub ?** Ne recrée pas le dépôt et ne supprime pas l'app de ton iPhone. Lis d'abord `MISE-A-JOUR-GITHUB.txt` pour sauvegarder puis mettre à jour les fichiers du dépôt `okajb/rcsq-m10`.
+
+Nouveautés : compteur de temps par joueur à côté de « Sur le terrain » / « Remplaçant », chrono qui s'arrête à la sortie et reprend à l'entrée, cumul de saison sur chaque fiche, pause et remise à zéro cohérentes. Les anciens matchs ne permettent pas de reconstituer les temps individuels passés.
+
+---
+
 # RCSQ M10 — Application de coach 2026–2027
 
 ## 1. Ce dossier ZIP est destiné à GitHub Pages (site PUBLIC)
