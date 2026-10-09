@@ -36,3 +36,8 @@ html{background:#07142a}body{background:#07142a}
 .profile-detail .playtotal{grid-column:1/-1;background:linear-gradient(135deg,#183e50,#1a4b42);border-color:#e6c35366}
 .profile-detail .playtotal strong{font-size:22px;font-variant-numeric:tabular-nums;color:#ffdf61}
 .profile-detail .playtotal small{display:block;color:#b2d2ce;font-size:11px;margin-top:5px}
+
+/* Option de synchronisation en direct */
+.live-entry{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:12px 0 18px}.live-entry .hint{flex:1;min-width:160px}.live-share{display:flex;flex-wrap:wrap;gap:8px}.live-match-title{margin:18px 0 16px}.live-player{display:block}.live-player .stat-actions{margin-top:12px}.live-player .stat-actions button{min-width:120px}
+
+.live-stats{display:grid;gap:7px;margin-top:12px}.live-stat-row{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid #ffffff18;padding:7px 0}.live-stat-row span{font-size:14px}.live-stat-buttons{display:flex;gap:7px}.live-stat-buttons .button{min-width:44px;padding:7px 12px;font-size:19px}

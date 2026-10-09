@@ -1,5 +1,5 @@
-const CACHE_NAME = 'rcsq-m10-public-v6';
-const FILES = ['./','./index.html','./styles.css','./app.js','./manifest.webmanifest','./icons/rcsq-icon-192.png','./icons/rcsq-icon-512.png','./icons/rcsq-apple-touch-icon.png','./assets/couverture-rcsq.webp','./assets/logo-officiel-rcsq.jpg'];
+const CACHE_NAME = 'rcsq-m10-public-v8-configured';
+const FILES = ['./','./index.html','./styles.css','./app.js','./cloud-sync.js','./cloud-config.js','./manifest.webmanifest','./icons/rcsq-icon-192.png','./icons/rcsq-icon-512.png','./icons/rcsq-apple-touch-icon.png','./assets/couverture-rcsq.webp','./assets/logo-officiel-rcsq.jpg'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));
 });

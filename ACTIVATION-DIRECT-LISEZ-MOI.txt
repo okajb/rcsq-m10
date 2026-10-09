@@ -1,0 +1,2 @@
+La configuration Firebase est déjà intégrée dans cloud-config.js.
+Ouvre COMMENCER-ICI.txt pour le déploiement et les tests entre deux téléphones.

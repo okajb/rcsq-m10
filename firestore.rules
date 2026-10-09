@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function memberPath(teamId) {
+      return /databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid);
+    }
+    function isMember(teamId) {
+      return signedIn() && exists(memberPath(teamId))
+        && get(memberPath(teamId)).data.role in ['admin', 'assistant'];
+    }
+    function isAdmin(teamId) {
+      return isMember(teamId) && get(memberPath(teamId)).data.role == 'admin';
+    }
+    match /teams/{teamId} {
+      allow read, write: if false;
+      match /members/{memberUid} {
+        // Les membres sont créés MANUELLEMENT par l'administrateur depuis la console Firebase.
+        // Aucun membre ne peut s'ajouter lui-même ni modifier son rôle via le site.
+        allow get: if signedIn() && (request.auth.uid == memberUid || isAdmin(teamId));
+        allow list, create, update, delete: if false;
+      }
+      match /matches/{matchId} {
+        allow get, list: if isMember(teamId);
+        allow create: if isAdmin(teamId)
+          && request.resource.data.keys().hasOnly(['title','opponent','date','format','roster','homeScore','awayScore','stats','createdBy','createdAt'])
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.title is string && request.resource.data.title.size() <= 120
+          && request.resource.data.opponent is string && request.resource.data.opponent.size() <= 120
+          && request.resource.data.date is string && request.resource.data.date.size() == 10
+          && request.resource.data.format in [5,7]
+          && request.resource.data.roster is list && request.resource.data.roster.size() <= 30
+          && request.resource.data.homeScore is int && request.resource.data.homeScore >= 0
+          && request.resource.data.awayScore is int && request.resource.data.awayScore >= 0
+          && request.resource.data.stats is map;
+        // Pour éviter les suppressions accidentelles, le partage n'est pas modifiable depuis l'application.
+        allow update, delete: if false;
+        match /events/{eventId} {
+          allow get, list: if isMember(teamId);
+          allow create: if isMember(teamId)
+            && exists(/databases/$(database)/documents/teams/$(teamId)/matches/$(matchId))
+            && request.resource.data.keys().hasOnly(['actor','createdAt','kind','delta','side','playerId','stat'])
+            && request.resource.data.actor == request.auth.uid
+            && request.resource.data.createdAt == request.time
+            && request.resource.data.delta in [-1,1]
+            && (
+              (request.resource.data.kind == 'score'
+                 && request.resource.data.keys().hasAll(['side'])
+                 && request.resource.data.side in ['home','away'])
+              ||
+              (request.resource.data.kind == 'stat'
+                 && request.resource.data.keys().hasAll(['playerId','stat'])
+                 && request.resource.data.playerId is string
+                 && request.resource.data.playerId.size() <= 180
+                 && request.resource.data.stat in ['try','tackle','assist','support','steal'])
+            );
+          // Historique append-only : une correction s'effectue par un nouvel événement négatif.
+          allow update, delete: if false;
+        }
+      }
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

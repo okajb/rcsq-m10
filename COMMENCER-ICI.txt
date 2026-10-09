@@ -1,0 +1,67 @@
+RCSQ M10 — FIREBASE CONFIGURÉ — SYNCHRONISATION EN DIRECT
+======================================================
+
+CE DOSSIER EST PRÊT À TÉLÉVERSER SUR LE DÉPÔT PUBLIC GITHUB : okajb/rcsq-m10
+
+DÉJÀ CONFIGURÉ :
+- Projet Firebase : rcsq-m10-direct ; application Web « RCSQ ».
+- cloud-config.js : paramètres Web publics déjà renseignés ; mode direct activé.
+- Le blason officiel du club et les compteurs individuels restent inclus.
+- Règles Firestore : copie de celles publiées dans la console Firebase.
+- Le projet Firestore est en europe-west9 (Paris), formule Spark.
+- Ton rôle admin existe dans /teams/rcsq-m10/members/TON-UID.
+
+AVANT LA MISE À JOUR (SUR L'IPHONE DU COACH)
+1. Dans l'application RCSQ M10 actuelle : Réglages > Exporter une sauvegarde privée.
+2. Conserve ce fichier JSON uniquement en lieu privé (pas sur GitHub et pas dans le ZIP public).
+3. Ne supprime ni l'app installée ni ses données Safari.
+
+MISE À JOUR GITHUB
+1. Décompresse le ZIP sur le Mac.
+2. Ouvre https://github.com/okajb/rcsq-m10 (branche principale).
+3. Ajouter un fichier > Téléverser des fichiers.
+4. Glisse le CONTENU du dossier (index.html, app.js, cloud-config.js, cloud-sync.js,
+   styles.css, sw.js, manifest.webmanifest, répertoires assets ET icons, etc.).
+5. Valider les modifications. L'index.html doit rester à la RACINE du dépôt.
+6. Attends la publication GitHub Pages puis ouvre https://okajb.github.io/rcsq-m10/
+7. Sur ton iPhone, ouvre l'app existante. Au besoin, recharge la page dans Safari
+   sans effacer les données de site. N'importe pas l'ancien fichier JSON : il écraserait
+   les données et les présences plus récentes.
+
+TEST DU COACH
+1. Dans l'app : Réglages > « Configurer / ouvrir les statistiques en direct ».
+2. Connecte-toi avec le COMPTE FIREBASE que tu as créé dans Authentication > Utilisateurs.
+3. Vérifie que le rôle Administrateur apparaît.
+4. Ouvre un mini-match local (Plateaux) et appuie sur « Partager en direct ».
+5. Le mini-match apparaît dans « Statistiques en direct ».
+
+TEST SUR LE TÉLÉPHONE DE L'ASSISTANT
+1. Dans Firebase Authentication > Utilisateurs, créer un DEUXIÈME utilisateur
+   avec son adresse et son propre mot de passe.
+2. Dans Firestore > Données > teams > rcsq-m10 > members,
+   ajouter un document dont l'ID est son UID Firebase ENTIER ; champ
+   role (string) = assistant. Ne jamais utiliser « ID automatique ».
+3. Sur l'autre téléphone, ouvrir le site Web RCSQ M10, rubrique « Plateaux » >
+   « Statistiques en direct », puis se connecter avec CE compte assistant.
+4. Ouvrir le mini-match partagé et enregistrer un essai de test.
+5. Sur l'iPhone du coach, vérifier que l'essai remonte sans actualisation.
+6. Corriger l'essai test avec le bouton « − » (événement correctif enregistré).
+
+PRÉCAUTIONS
+- Toute action saisie dans un match partagé est enregistrée sur Firestore ; le test
+  peut rester dans l'historique. Utiliser un MINI-MATCH D'ESSAI dédié, sans données
+  personnelles, pour les premiers essais.
+- Aucune photo, aucun nom de famille, aucune naissance ni licence FFR n'est envoyée
+  à Firebase. MAIS les prénoms des joueurs, leurs identifiants techniques, leurs
+  statistiques et les informations du match SONT partagés avec les comptes autorisés.
+- Ton fichier JSON privé (11 joueurs) doit rester sur ton téléphone et hors du dépôt.
+- Les chronomètres individuels et les remplacements restent locaux au coach.
+- Ce mode a besoin d'Internet sur les deux téléphones et du SDK Firebase distant.
+- Cette version a été vérifiée statiquement ; un essai EN DIRECT doit encore être fait
+  avec les deux appareils pour confirmer la synchronisation et les permissions.
+- Le forfait Spark est gratuit sous quota, sans passage automatique au forfait Blaze.
+- Si Firebase refuse la connexion, vérifier Authentication > Paramètres > Domaines
+  autorisés : okajb.github.io peut avoir besoin d'être ajouté.
+- Ne communiquer aucun mot de passe ou identifiant privé à d'autres personnes.
+
+SUPPORT : https://firebase.google.com/docs/auth/web/password-auth

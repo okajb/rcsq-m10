@@ -1,13 +1,6 @@
-RCSQ M10 — MISE À JOUR DU BLASON OFFICIEL
+# RCSQ M10 — Mise à jour Firebase configurée
 
-1. AVANT TOUT : sur l’icône RCSQ M10 de ton iPhone, ouvre Réglages puis « Exporter une sauvegarde privée ». Conserve le fichier JSON dans un emplacement sûr. NE LE METS PAS SUR GITHUB.
-2. Sur Mac, décompresse ce ZIP.
-3. Ouvre https://github.com/okajb/rcsq-m10 et clique sur « Ajouter un fichier » > « Téléverser des fichiers ».
-4. Glisse TOUT LE CONTENU de ce dossier, pas le dossier lui-même : index.html, app.js, sw.js, manifest.webmanifest, styles.css, dossiers assets et icons, etc. Les fichiers portant le même nom remplaceront les anciens.
-5. Valide les modifications. GitHub Pages se met à jour après quelques minutes.
-6. Sur l’iPhone, ouvre https://okajb.github.io/rcsq-m10/ dans Safari et recharge la page ; puis ferme et relance l’application déjà installée.
-7. Le logo officiel doit apparaître dans la barre d’en-tête et dans les nouvelles icônes. Si tu avais ajouté un logo personnalisé dans Réglages, il peut rester affiché à la place du logo par défaut.
+La configuration Web du projet `rcsq-m10-direct` est déjà intégrée.
+Consulte **COMMENCER-ICI.txt** pour les étapes à suivre et les précautions.
 
-IMPORTANT : ne désinstalle surtout pas l’application, ne vide pas Safari et ne réimporte pas le vieux fichier privé si tes données actuelles ont changé. La nouvelle version n’efface pas l’effectif ni les présences. Il est possible que l’icône déjà installée sur l’écran d’accueil iOS mette du temps à se rafraîchir.
-
-Cette archive NE CONTIENT PAS les photos individuelles ou licences FFR des enfants.
+**IMPORTANT** : les fiches privées (photos, dates de naissance, licences FFR) ne doivent jamais être envoyées sur le dépôt GitHub public.
