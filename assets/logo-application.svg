@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="RCSQ M10">
+ <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1557bf"/><stop offset="1" stop-color="#0b1b3b"/></linearGradient></defs>
+ <rect x="8" y="8" width="496" height="496" rx="108" fill="#0b1b3b"/>
+ <path d="M256 58 416 112v142c0 95-62 165-160 202C158 419 96 349 96 254V112Z" fill="url(#g)" stroke="#ffd649" stroke-width="17"/>
+ <path d="M137 136h238" stroke="#ee464d" stroke-width="19" stroke-linecap="round"/>
+ <ellipse cx="256" cy="229" rx="90" ry="51" transform="rotate(-25 256 229)" fill="#fff" stroke="#ffd649" stroke-width="8"/>
+ <path d="M211 250 299 207M235 215l21 43M250 210l22 44M269 202l20 43" stroke="#103d85" stroke-width="8" stroke-linecap="round"/>
+ <text x="256" y="356" font-family="DejaVu Sans, sans-serif" font-size="69" font-weight="900" text-anchor="middle" fill="#fff">RCSQ</text>
+ <text x="256" y="407" font-family="DejaVu Sans, sans-serif" font-size="31" font-weight="900" text-anchor="middle" fill="#ffd649" letter-spacing="6">M10</text>
+</svg>

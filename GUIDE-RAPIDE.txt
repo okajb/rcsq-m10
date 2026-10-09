@@ -1,0 +1,10 @@
+RCSQ M10 – MISE EN LIGNE SIMPLE
+
+1. Décompresse le ZIP PUBLIC.
+2. Nouveau dépôt GitHub rcsq-m10 (sans toucher à OKAJB).
+3. Envoie TOUS les fichiers contenus dans le dossier public via Add file > Upload files.
+4. Settings > Pages > main / (root) > Save.
+5. Sur iPhone dans Safari : Partager > Sur l’écran d’accueil.
+6. Sur l’icône installée : importer le fichier JSON PRIVÉ des 11 joueurs.
+
+⚠️ NEVER publier le JSON privé, le PDF des licences ni les portraits des 11 enfants sur GitHub.
