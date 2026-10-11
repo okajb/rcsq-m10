@@ -1,223 +1,429 @@
-/* RCSQ M10 - PWA statique, sans dépendances ni transfert de données personnelles. */
 (() => {
-'use strict';
-const DB_NAME='rcsq-m10-local-v1', DB_STORE='app', DB_KEY='main';
-const formatDate=new Intl.DateTimeFormat('fr-FR',{day:'2-digit',month:'long',year:'numeric'});
-const shortDate=new Intl.DateTimeFormat('fr-FR',{day:'2-digit',month:'short'});
-const dayDate=new Intl.DateTimeFormat('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
-const WORKOUTS=[
-{id:'work-1',name:'Échauffement avec ballon',minutes:10,equipment:'Ballons, plots',description:'Allers-retours avec passes, ballon en l’air, jeu au pied léger et petites accélérations progressives.'},
-{id:'work-2',name:'Le passeur devient premier soutien',minutes:10,equipment:'1 ballon pour 5, plots',description:'Après chaque passe, le joueur suit l’action pour devenir premier soutien du porteur.'},
-{id:'work-3',name:'5 contre 5 — touché + 2 secondes',minutes:12,equipment:'Chasubles, plots, 2 terrains de 20 × 30 m',description:'Touché à deux mains puis 2 secondes pour passer. Arrêter et expliquer si nécessaire.'},
-{id:'work-4',name:'Progression du plaquage',minutes:12,equipment:'4 boucliers, 2 matelas',description:'Position du corps et sécurité à l’arrêt, puis parcours et mise en situation progressive sous surveillance éducateur.'},
-{id:'work-5',name:'Plaquage + libération + ruck',minutes:12,equipment:'Plots, 4 piquets, 4 boucliers',description:'Passe avant le piquet, le passeur soutient, contact maîtrisé sur bouclier, libération et soutien au-dessus du ballon.'},
-{id:'work-6',name:'Match réduit avec soutien',minutes:12,equipment:'Ballon, plots, chasubles',description:'Petits matchs adaptés au niveau et aux règles du plateau, priorité au plaisir, à la sécurité et au soutien.'}
-];
-let db=null,state=null,page='home',selectedSession=null,selectedMatch=null,selectedCloudMatch=null,searchTerm='',toastTimer=null,saveTimer=null,interval=null,runStart=null;
-const $=s=>document.querySelector(s);
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const iso=()=>new Date().toISOString().slice(0,10);
-const uid=p=>p+'-'+(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2));
-const dateString=d=>d&&/^\d{4}-\d\d-\d\d$/.test(d)?formatDate.format(new Date(d+'T12:00:00')):'Non renseignée';
-const dateShort=d=>d?shortDate.format(new Date(d+'T12:00:00')):'—';
-const dateNum=d=>d?dayDate.format(new Date(d+'T12:00:00')):'—';
-const safeImage=v=>typeof v==='string'&&/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=\s]+$/.test(v)?v:'';
-const avatar=(p,extra='')=>safeImage(p?.photo)?`<img class="${extra}" src="${p.photo}" alt="Portrait de ${esc(p.firstName)}" loading="lazy">`:`<span>${esc((p?.firstName||'?').slice(0,1).toUpperCase())}</span>`;
-const emptyState=()=>({schema:'rcsq-m10-v1',players:[],sessions:[],matches:[],exercises:structuredClone(WORKOUTS),branding:{cover:'',logo:''}});
-// Millisecond counters avoid losing fractional seconds at every substitution.
-const validMs=v=>Number.isFinite(Number(v))&&Number(v)>=0?Math.min(Math.floor(Number(v)),360000000):0;
-const timeMap=source=>Object.fromEntries(Object.entries(source&&typeof source==='object'&&!Array.isArray(source)?source:{}).filter(([key])=>key.length<200&&key!=='__proto__').map(([key,value])=>[key,validMs(value)]));
-const clockTime=ms=>{const sec=Math.floor(Math.max(0,ms)/1000);return `${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`};
-const totalTime=ms=>{const sec=Math.floor(Math.max(0,ms)/1000);if(!sec)return '0 min';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;return `${h?h+' h ':''}${m||(!h&&s)?m+' min ':''}${s?s+' s':''}`.trim()};
-// A running segment belongs only to players selected during that segment.
-function liveElapsedMs(m){return validMs(m.elapsedMs)+(runStart&&selectedMatch===m.id?Math.max(0,Date.now()-runStart):0)}
-function livePlayerMs(m,playerId){return validMs(m.playTimeMs?.[playerId])+(runStart&&selectedMatch===m.id&&m.lineup.includes(playerId)?Math.max(0,Date.now()-runStart):0)}
-function settleRunningSegment(m){if(!runStart||!m)return;const delta=Math.max(0,Date.now()-runStart);m.elapsedMs=validMs(m.elapsedMs)+delta;m.elapsed=Math.floor(m.elapsedMs/1000);m.playTimeMs??={};for(const id of m.lineup)m.playTimeMs[id]=validMs(m.playTimeMs[id])+delta;runStart=Date.now()}
-function pauseRunningMatch(){if(runStart){const m=state.matches.find(m=>m.id===selectedMatch);if(m){settleRunningSegment(m);save()}}stopTimer()}
+  const LS_KEY = 'rcsq-m10-coach-v2'; // même clé pour préserver les données existantes
+  const APP_VERSION = 5;
+  const names = Array.from({length:11},(_,i)=>`Joueur ${i+1}`);
 
-function normalize(v){
- if(!v||v.schema!=='rcsq-m10-v1'||!Array.isArray(v.players))throw new Error('Fichier non reconnu : il faut les données privées RCSQ M10.');
- const cleanText=x=>String(x??'').slice(0,180);
- const players=v.players.map((p,i)=>({id:cleanText(p.id)||uid('player'),firstName:cleanText(p.firstName),lastName:cleanText(p.lastName),birthDate:cleanText(p.birthDate),licenceNumber:cleanText(p.licenceNumber),category:cleanText(p.category)||'M-10',photo:safeImage(p.photo),notes:String(p.notes||'').slice(0,1500)}));
- const sessions=(Array.isArray(v.sessions)?v.sessions:[]).map(s=>({id:cleanText(s.id)||uid('session'),type:s.type==='plateau'?'plateau':'entrainement',title:cleanText(s.title),date:cleanText(s.date),attendance:typeof s.attendance==='object'&&s.attendance&&!Array.isArray(s.attendance)?s.attendance:{}}));
- const matches=(Array.isArray(v.matches)?v.matches:[]).map(m=>({id:cleanText(m.id)||uid('match'),title:cleanText(m.title),opponent:cleanText(m.opponent),date:cleanText(m.date),format:m.format===7?7:5,duration:Math.min(90,Math.max(1,Number(m.duration)||10)),lineup:Array.isArray(m.lineup)?m.lineup.map(String):[],homeScore:Math.max(0,Number(m.homeScore)||0),awayScore:Math.max(0,Number(m.awayScore)||0),elapsed:Math.max(0,Number(m.elapsed)||0),elapsedMs:validMs(m.elapsedMs??(Math.max(0,Number(m.elapsed)||0)*1000)),playTimeMs:timeMap(m.playTimeMs),stats:typeof m.stats==='object'&&m.stats?m.stats:{}}));
- const exercises=(Array.isArray(v.exercises)&&v.exercises.length?v.exercises:WORKOUTS).map(e=>({id:cleanText(e.id)||uid('work'),name:cleanText(e.name),minutes:Number(e.minutes)||10,equipment:cleanText(e.equipment),description:cleanText(e.description)}));
- return {schema:'rcsq-m10-v1',players,sessions,matches,exercises,branding:{cover:safeImage(v.branding?.cover),logo:safeImage(v.branding?.logo)}};
-}
-function openDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(DB_NAME,1);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(DB_STORE))req.result.createObjectStore(DB_STORE)};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
-function dbGet(){return new Promise((resolve,reject)=>{const tx=db.transaction(DB_STORE,'readonly');const r=tx.objectStore(DB_STORE).get(DB_KEY);r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>reject(r.error);});}
-function dbPut(value){return new Promise((resolve,reject)=>{const tx=db.transaction(DB_STORE,'readwrite');tx.objectStore(DB_STORE).put(value,DB_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});}
-function save(){clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{try{await dbPut(state)}catch(e){toast('Enregistrement impossible : exporte une sauvegarde privée.')}},170);}
-function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3400);}
-function navigate(to){pauseRunningMatch();page=to;selectedSession=null;selectedMatch=null;searchTerm='';render();window.scrollTo({top:0,behavior:'instant'});}
-function stopTimer(){if(interval)clearInterval(interval);interval=null;runStart=null;}
-const navItems=[['home','⌂','Accueil'],['players','♟','Effectif'],['sessions','✓','Présences'],['matches','◉','Plateaux'],['exercises','⚑','Ateliers'],['settings','⚙','Réglages']];
-function header(){return `<header class="topbar"><button class="brand" data-action="navigate" data-to="home"><span class="brand-mark"><img src="${state.branding.logo||'./assets/logo-officiel-rcsq.jpg'}" alt="Identité de l’application RCSQ M10"></span><span><span class="brand-name">École de rugby</span><span class="brand-title" style="display:block">RCSQ <span style="color:var(--amber)">M10</span></span></span></button><div class="top-actions"><span class="top-chip">2026 • 2027</span><button class="icon-btn" data-action="navigate" data-to="settings" title="Réglages">⚙</button></div></header>`}
-function footer(){return `<nav class="nav" aria-label="Navigation principale">${navItems.map(([key,icon,label])=>`<button data-action="navigate" data-to="${key}" class="${page===key?'active':''}" aria-current="${page===key?'page':'false'}"><span class="nav-ico">${icon}</span>${label}</button>`).join('')}</nav><div class="foot-info">RCSQ M10 • Fiches privées sur l’appareil • Statistiques partagées seulement si le direct est activé • Aucune publicité</div>`}
-function stats(){const n=state.players.length;const m=state.matches.length;const s=state.sessions.length;const present=state.sessions.flatMap(x=>Object.values(x.attendance||{})).filter(x=>x==='yes').length;return `<div class="stat-grid"><div class="metric"><div class="metric-symbol">◈</div><div class="metric-num">${n}</div><div class="metric-name">Joueurs</div></div><div class="metric"><div class="metric-symbol">✓</div><div class="metric-num">${s}</div><div class="metric-name">Séances / dates</div></div><div class="metric"><div class="metric-symbol">◉</div><div class="metric-num">${m}</div><div class="metric-name">Mini-matchs</div></div><div class="metric"><div class="metric-symbol">↗</div><div class="metric-num">${present}</div><div class="metric-name">Présences cochées</div></div></div>`}
-function home(){const future=state.sessions.filter(s=>s.date>=iso()).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-const quick=[['players','♟','Effectif','11 joueurs'],['sessions','✓','Présences','Suivi par séance'],['exercises','⚑','Entraînements','6 ateliers M10'],['matches','◉','Plateaux','Compositions / score'],['matches','◴','Mini-matchs','Chrono & essais'],['settings','▤','Sauvegardes','Mes données privées']];
-return `<section class="hero ${state.branding.cover?'has-cover':''}" ${state.branding.cover?`style="background-image:linear-gradient(90deg,#081933f0 0%,#081933b8 52%,#08193316 100%),url('${state.branding.cover}')"`:''}>
-<span class="eyebrow">ÉCOLE DE RUGBY SAINT-QUENTINAISE • M10</span><h1>RCSQ <em>M10</em></h1><p class="hero-subtitle">SAISON 2026–2027</p><p>Plus qu’un sport, une équipe !<br>Ton carnet de coach, sur le terrain comme à la maison.</p><div class="hero-cta"><button class="button primary" data-action="navigate" data-to="players">Voir l’effectif →</button><button class="button secondary" data-action="new-session">+ Nouvelle séance</button></div></section>
-${!state.players.length?`<section class="welcome panel"><div><span class="eyebrow">ÉTAPE 1 • SUR TON IPHONE</span><h2>Importe les 11 joueurs</h2><p>Les photos et numéros FFR sont dans un fichier privé séparé. Ils ne sont pas publiés sur GitHub.</p></div><button class="button primary" data-action="import">⇪ Importer les 11 fiches privées</button></section>`:''}
-<section class="section"><div class="section-head"><h2>Le vestiaire</h2><span class="pill gold">${state.players.length?state.players.length+' joueurs sur cet appareil':'11 joueurs prévus'}</span></div><div class="quick-grid">${quick.map(([to,icon,title,sub],i)=>`<button class="quick-card ${i===0?'featured':''}" data-action="navigate" data-to="${to}"><span class="quick-icon">${icon}</span><span class="quick-title">${title}</span><span class="quick-desc">${sub}</span><span class="quick-arrow">↗</span></button>`).join('')}</div></section>
-${stats()}<section class="section columns"><div class="panel"><div class="section-head"><h2>Prochains rendez-vous</h2><button class="button mini outline" data-action="navigate" data-to="sessions">Tout voir</button></div>${future.length?future.map(s=>rowSession(s,false)).join(''):`<div class="empty"><strong>Aucune date programmée</strong>Ajoute ton prochain entraînement ou ton plateau.</div>`}</div><div class="panel"><h3>🔒 Mes données</h3><p>${state.players.length?`Tes ${state.players.length} fiches sont enregistrées sur cet appareil.`:'Aucune fiche d’enfant n’est chargée sur le site public.'}</p><button class="button outline" data-action="navigate" data-to="settings">Importer / sauvegarder →</button><p class="mini-info">Sans abonnement. Pense à exporter une sauvegarde privée régulièrement.</p></div></section>`;
-}
-function playerCard(p){return `<button class="player-card" data-action="profile" data-id="${esc(p.id)}"><div class="player-photo">${safeImage(p.photo)?`<img class="player-photo player-img" src="${p.photo}" alt="Portrait de ${esc(p.firstName)}" loading="lazy">`:esc((p.firstName||'?')[0])}</div><div class="player-card-info"><div class="player-first">${esc(p.firstName)}</div><div class="player-last">${esc(p.lastName)}</div><div class="player-tag">RCSQ • M10</div></div></button>`}
-function players(){const list=state.players.filter(p=>(p.firstName+' '+p.lastName).toLocaleLowerCase('fr').includes(searchTerm.toLocaleLowerCase('fr')));
- return `<div class="content-header"><div><h1>Le groupe M10</h1><p>${state.players.length} joueur${state.players.length>1?'s':''} • Saison 2026-2027</p></div><button class="button primary" data-action="new-player">+ Joueur</button></div><div class="section-head"><input class="search" id="player-search" placeholder="Rechercher un joueur…" value="${esc(searchTerm)}" aria-label="Rechercher un joueur"><span class="hint">Touchez un portrait pour ouvrir sa fiche</span></div>${list.length?`<div class="player-grid">${list.map(playerCard).join('')}</div>`:`<div class="empty"><strong>${state.players.length?'Aucun résultat':'Le vestiaire est vide'}</strong>${state.players.length?'Essaie un autre prénom.':'Importe les 11 fiches privées pour afficher les photos.'}${!state.players.length?`<p><button class="button primary" data-action="import">Importer l'effectif</button></p>`:''}</div>`}`;
-}
-function rowSession(s,actions=true){return `<div class="rowline"><div class="session-info"><div class="row-title">${esc(s.title|| (s.type==='plateau'?'Plateau':'Entraînement'))}</div><div class="row-sub">${dateString(s.date)} • ${s.type==='plateau'?'🏉 Plateau':'⚑ Entraînement'}</div></div><button class="button mini outline" data-action="open-session" data-id="${esc(s.id)}">Présences →</button></div>`}
-function sessions(){const current=state.sessions.find(s=>s.id===selectedSession);if(current)return sessionDetail(current);
- return `<div class="content-header"><div><h1>Présences</h1><p>À chaque entraînement et plateau, sais exactement qui était là.</p></div><button class="button primary" data-action="new-session">+ Séance / plateau</button></div>${state.sessions.length?`<div class="list-stack">${[...state.sessions].sort((a,b)=>b.date.localeCompare(a.date)).map(s=>`<div class="list-card"><div class="session-line"><div class="calendar-icon">${esc((s.date||'').slice(8,10)||'•')}<span>${esc(dateShort(s.date).replace(/[0-9 ]/g,''))}</span></div><div class="session-info"><div class="strong">${esc(s.title)}</div><div class="meta">${dateString(s.date)} • ${s.type==='plateau'?'Plateau':'Entraînement'}</div></div></div><div class="card-actions"><span class="pill slate">${Object.values(s.attendance||{}).filter(v=>v==='yes').length}/${state.players.length} présents</span><button class="button mini outline" data-action="open-session" data-id="${esc(s.id)}">Ouvrir →</button></div></div>`).join('')}</div>`:`<div class="empty"><strong>Aucune séance enregistrée</strong>Crée ton premier entraînement ou plateau pour suivre les présences.</div>`}`;
-}
-function sessionDetail(s){const y=state.players.filter(p=>s.attendance[p.id]==='yes').length;const n=state.players.filter(p=>s.attendance[p.id]==='no').length;const exc=state.players.filter(p=>s.attendance[p.id]==='exc').length;return `<div class="content-header"><div><button class="button mini outline" data-action="back-sessions">← Toutes les séances</button><h1 style="margin-top:16px">${esc(s.title)}</h1><p>${dateString(s.date)} • ${s.type==='plateau'?'Plateau':'Entraînement'}</p></div><button class="button mini danger" data-action="delete-session" data-id="${esc(s.id)}">Supprimer</button></div><div class="panel" style="margin-bottom:15px"><div class="section-head"><h2>Pointage</h2><span class="pill">${y} présent${y>1?'s':''} / ${state.players.length}</span></div><div class="progress"><div class="progress-bar" style="width:${state.players.length?100*y/state.players.length:0}%"></div></div><p>${y} présents • ${n} absents • ${exc} excusés • ${state.players.length-y-n-exc} non renseignés</p><div class="att-legend">✓ Présent &nbsp;&nbsp; ✕ Absent &nbsp;&nbsp; ~ Excusé. Toucher de nouveau le choix pour le retirer.</div></div><div class="attendance-grid">${state.players.length?state.players.map(p=>`<div class="attendance-item"><div class="avatar-mini">${avatar(p)}</div><div class="att-name">${esc(p.firstName)} <span class="muted">${esc(p.lastName)}</span></div><div class="att-actions"><button class="att-btn yes ${s.attendance[p.id]==='yes'?'selected':''}" title="Présent" data-action="attendance" data-session="${esc(s.id)}" data-player="${esc(p.id)}" data-status="yes">✓</button><button class="att-btn no ${s.attendance[p.id]==='no'?'selected':''}" title="Absent" data-action="attendance" data-session="${esc(s.id)}" data-player="${esc(p.id)}" data-status="no">✕</button><button class="att-btn exc ${s.attendance[p.id]==='exc'?'selected':''}" title="Excusé" data-action="attendance" data-session="${esc(s.id)}" data-player="${esc(p.id)}" data-status="exc">~</button></div></div>`).join(''):`<div class="empty">Importe d’abord les fiches joueurs.</div>`}</div>`}
-function matches(){const current=state.matches.find(m=>m.id===selectedMatch);if(current)return matchDetail(current);
- return `<div class="content-header"><div><h1>Plateaux & mini-matchs</h1><p>Compositions 5 contre 5 ou 7 contre 7, chronomètre et statistiques.</p></div><button class="button primary" data-action="new-match">+ Mini-match</button></div><div class="live-entry"><button class="button outline" data-action="open-live">🔴 Statistiques en direct (assistant)</button><span class="hint">Compte autorisé nécessaire pour partager les résultats entre téléphones</span></div><div class="notice" style="margin-bottom:17px"><strong>À adapter au règlement du plateau.</strong> Les formats 5v5 et 7v7 sont des options d’organisation dans le carnet, pas une affirmation des règles applicables à chaque rencontre.</div>${state.matches.length?`<div class="list-stack">${[...state.matches].sort((a,b)=>b.date.localeCompare(a.date)).map(m=>`<div class="list-card"><div><div class="strong">${esc(m.title)}</div><div class="meta">${dateString(m.date)} • ${m.format} contre ${m.format} • ${esc(m.opponent||'Adversaire à renseigner')}</div></div><div class="card-actions"><span class="pill slate">${m.homeScore} – ${m.awayScore} essais</span><button class="button mini outline" data-action="open-match" data-id="${esc(m.id)}">Suivre →</button></div></div>`).join('')}</div>`:`<div class="empty"><strong>Pas encore de mini-match</strong>Crée une rencontre pendant ton prochain plateau pour gérer tes joueurs et tes statistiques.</div>`}`;
-}
-function matchDetail(m){const available=state.players;const selected=m.lineup.filter(id=>available.some(p=>p.id===id));
- return `<div class="content-header"><div><button class="button mini outline" data-action="back-matches">← Mes mini-matchs</button><h1 style="margin-top:16px">${esc(m.title)}</h1><p>${dateString(m.date)} • ${m.format} contre ${m.format} • ${esc(m.opponent||'Adversaire')}</p></div><div class="live-share"><button class="button mini outline" data-action="cloud-publish" data-id="${esc(m.id)}">${window.RCSQLive?.hasMatch(m.id)?'☁️ Match partagé':'☁️ Partager en direct'}</button><button class="button mini primary" data-action="cloud-invite" data-id="${esc(m.id)}">📷 Inviter parent (QR)</button><button class="button mini danger" data-action="delete-match" data-id="${esc(m.id)}">Supprimer</button></div></div><div class="split-controls"><div class="panel"><h3>Tableau des essais</h3><div class="score-board"><div><div class="score-team">RCSQ</div><div class="score-num">${m.homeScore}</div></div><div class="score-sep">—</div><div><div class="score-team">${esc(m.opponent||'Adversaire')}</div><div class="score-num">${m.awayScore}</div></div></div><div class="timer" id="timer-value">${clockTime(liveElapsedMs(m))}</div><div class="timer-controls"><button class="button mini primary" data-action="timer-start" ${runStart?'disabled':''}>▶ Démarrer</button><button class="button mini warn" data-action="timer-pause" ${runStart?'':'disabled'}>❚❚ Pause</button><button class="button mini outline" data-action="timer-reset">↺ Remise à zéro</button></div><p class="mini-info">Durée prévue : ${m.duration} min. Les temps individuels suivent les entrées et sorties. Le chrono se met en pause lorsque tu quittes l’application.</p><div class="timer-controls"><button class="button mini outline" data-action="score" data-side="home">+1 essai RCSQ</button><button class="button mini outline" data-action="score" data-side="away">+1 essai adverse</button><button class="button mini outline" data-action="undo-score" data-side="home">−1 RCSQ</button><button class="button mini outline" data-action="undo-score" data-side="away">−1 adverse</button></div></div><div class="panel"><div class="section-head"><h3>Composition ${m.format} joueurs</h3><span class="pill ${selected.length===m.format?'':'slate'}">${selected.length}/${m.format} titulaires</span></div><p>Appuie sur un joueur pour le faire entrer ou sortir. Le temps affiché sous son nom se cumule automatiquement dès que le chrono tourne.</p><div class="lineup-grid">${available.length?available.map(p=>`<button class="lineup-btn ${selected.includes(p.id)?'selected':''}" data-action="lineup" data-id="${esc(p.id)}">${esc(p.firstName)} ${esc(p.lastName)}<span class="lineup-status">${selected.includes(p.id)?'● Sur le terrain':'○ Remplaçant'} <strong class="lineup-time" data-playertime="${esc(p.id)}">${clockTime(livePlayerMs(m,p.id))}</strong></span></button>`).join(''):'<div class="empty">Importer les joueurs pour composer une équipe.</div>'}</div></div></div><section class="section panel"><div class="section-head"><h2>Statistiques individuelles</h2><span class="hint">Enregistrer une action par joueur</span></div>${selected.length?`<div class="list-stack">${selected.map(id=>{const p=available.find(x=>x.id===id);if(!p)return '';const st=m.stats[id]||{};return `<div class="list-card" style="display:block"><div class="section-head"><strong>${esc(p.firstName)} ${esc(p.lastName)}</strong><span class="pill slate">${Object.values(st).reduce((a,b)=>a+(Number(b)||0),0)} actions</span></div><div class="stat-actions">${[['try','🏉 Essai'],['tackle','🛡️ Plaquage'],['assist','↗ Passe décisive'],['support','🤝 Soutien'],['steal','✋ Ballon récupéré']].map(([k,label])=>`<button data-action="add-stat" data-player="${esc(p.id)}" data-stat="${k}"><strong>+ ${esc(label)} <span class="muted">${Number(st[k]||0)}</span></strong></button>`).join('')}</div></div>`}).join('')}</div>`:`<div class="empty">Choisis d’abord les joueurs sur le terrain pour noter les actions.</div>`}</section>`;
-}
-function exercises(){return `<div class="content-header"><div><h1>Ateliers & entraînements</h1><p>${state.exercises.length} exercices disponibles pour les M10</p></div><button class="button primary" data-action="new-exercise">+ Atelier</button></div><div class="notice gold" style="margin-bottom:15px"><strong>Sécurité d’abord :</strong> les situations avec contact et plaquage nécessitent l’encadrement adapté, les protections nécessaires et le respect des consignes FFR en vigueur.</div><div class="activity-list">${state.exercises.map((w,i)=>`<article class="activity-card"><div class="activity-top"><div><span class="eyebrow">ATELIER ${i+1}</span><div class="activity-name" style="margin-top:6px">${esc(w.name)}</div></div><span class="pill slate">${Number(w.minutes)||0} min</span></div><div class="activity-caption">${esc(w.description)}</div><div class="activity-meta">⚑ ${esc(w.equipment||'Matériel à préciser')}</div><div style="margin-top:15px"><button class="button mini outline" data-action="edit-exercise" data-id="${esc(w.id)}">Modifier</button> <button class="button mini danger" data-action="delete-exercise" data-id="${esc(w.id)}">Supprimer</button></div></article>`).join('')}</div>`}
-function settings(){return `<div class="content-header"><div><h1>Réglages & confidentialité</h1><p>Cette application fonctionne sans abonnement. Le mode direct facultatif nécessite un compte autorisé et Internet.</p></div></div><div class="live-entry"><button class="button primary" data-action="open-live">🔴 Configurer / ouvrir les statistiques en direct</button><p class="mini-info">Le mode direct partage uniquement les prénoms et les statistiques avec les comptes autorisés. Les photos, noms de famille, dates de naissance et licences ne sont pas envoyés sur Firebase.</p></div><div class="settings-grid"><section class="panel"><h3>🔒 Données des enfants</h3><p>Les photos, noms, dates de naissance et numéros de carte FFR ne sont pas dans le site public : ils sont stockés dans la mémoire locale de ce navigateur après importation.</p><div class="stackgap"><button class="button primary" data-action="import">⇪ Importer les données privées</button><button class="button outline" data-action="export">⇩ Exporter une sauvegarde privée</button></div><p class="mini-info">Le fichier privé exporté contient les photos et numéros FFR. Ne le publie jamais sur GitHub ou un site ouvert.</p></section><section class="panel"><h3>🎨 Personnaliser mon application</h3><p>L’application utilise désormais le blason officiel RCSQ et une illustration d’accueil. Tu peux personnaliser le logo ou la couverture uniquement sur cet appareil.</p><div class="stackgap"><button class="button outline" data-action="pick-branding" data-field="logo">Ajouter / changer le logo RCSQ</button><button class="button outline" data-action="pick-branding" data-field="cover">Ajouter / changer la photo de couverture</button><button class="button mini outline" data-action="reset-branding">Réinitialiser l'habillage</button></div></section><section class="panel"><h3>📱 Installer sur iPhone</h3><p>Ouvre l’adresse GitHub Pages dans Safari, touche <strong>Partager</strong>, puis <strong>Sur l’écran d’accueil</strong> → <strong>Ajouter</strong>. Ouvre ensuite l’icône installée et importe le fichier privé.</p><div class="notice"><strong>Hors connexion :</strong> une fois les fichiers de l’application chargés et l’installation effectuée, les fonctions restent utilisables sans réseau.</div></section><section class="panel"><h3>⚠️ Sauvegarde et appareil</h3><p>Les données peuvent disparaître si tu effaces les données de Safari, réinitialises le téléphone ou désinstalles l’application. Fais une sauvegarde privée régulière.</p><p>Si d’autres personnes utilisent le même iPhone ou le même navigateur, elles peuvent accéder aux données. Protège l’appareil avec un code.</p><button class="button danger" data-action="erase">Effacer toutes les données locales</button></section></div>`}
-function livePage(){
- const cloud=window.RCSQLive;
- if(!cloud?.configured)return `<div class="content-header"><div><h1>🔴 Statistiques en direct</h1><p>Connexion entre deux téléphones (mode facultatif)</p></div></div><div class="panel"><h3>Configuration nécessaire</h3><p>Ton application locale fonctionne normalement. Pour activer la synchronisation, crée d’abord ton projet gratuit Firebase et suis le guide inclus dans le dossier GitHub. Aucun mot de passe ni aucune fiche d’enfant ne doit être publié sur GitHub.</p><p class="mini-info">La synchronisation est désactivée tant que les règles de sécurité Firebase et les comptes autorisés ne sont pas prêts.</p></div>`;
- if(!cloud.ready)return `<div class="content-header"><h1>🔴 Statistiques en direct</h1></div><div class="panel"><p>Connexion au service sécurisé…</p>${cloud.error?`<div class="notice">${esc(cloud.error)}</div>`:''}<p>Vérifie Internet et le fichier cloud-config.js.</p></div>`;
- if(!cloud.signedIn && cloud.invitePending)return `<div class="content-header"><h1>📷 Invitation parent</h1></div><div class="panel"><p>Connexion sécurisée automatique en cours…</p>${cloud.error?`<div class="notice">${esc(cloud.error)}</div>`:''}</div>`;
- if(!cloud.signedIn)return `<div class="content-header"><h1>🔴 Statistiques en direct</h1></div><div class="panel"><h3>Connexion éducateur / assistant</h3><p>Seules les personnes inscrites et autorisées dans Firebase peuvent voir les matchs partagés.</p><form id="cloud-login-form"><div class="field"><label>Adresse e-mail</label><input required name="email" type="email" autocomplete="username"></div><div class="field"><label>Mot de passe</label><input required name="password" type="password" autocomplete="current-password"></div><button class="button primary" type="submit">Se connecter</button></form>${cloud.error?`<p class="notice">${esc(cloud.error)}</p>`:''}</div>`;
- if(!cloud.role && cloud.invitePending)return `<div class="content-header"><h1>📷 Invitation parent</h1></div><div class="panel"><p>Vérification du QR code et des autorisations…</p>${cloud.error?`<div class="notice">${esc(cloud.error)}</div>`:''}</div>`;
- if(!cloud.role)return `<div class="content-header"><h1>🔴 Statistiques en direct</h1></div><div class="panel"><h3>Compte non autorisé</h3><p>Connecté : ${esc(cloud.email)}. L'administrateur doit encore ajouter ton identifiant utilisateur (UID) dans les membres autorisés de Firebase.</p><button class="button outline" data-action="cloud-logout">Se déconnecter</button>${cloud.error?`<p>${esc(cloud.error)}</p>`:''}</div>`;
- const list=cloud.matches;
- const m=selectedCloudMatch?list.find(x=>x.id===selectedCloudMatch):(cloud.role==='guest'?list.find(x=>x.id===cloud.guestMatchId):null);
- const top=`<div class="content-header"><div><h1>🔴 Statistiques en direct</h1><p>${cloud.role==='guest'?'Parent assistant · Accès au match':esc(cloud.email)+' • '+(cloud.role==='admin'?'Administrateur':'Assistant')}</p></div><button class="button mini outline" data-action="cloud-logout">Déconnexion</button></div>`;
- if(!m)return top+`${cloud.role==='admin'?`<div class="panel"><h3>📷 Invitations des parents</h3><p>Depuis un mini-match, touche « Inviter parent (QR) ». Les liens sont valables 8 heures maximum. Tu peux les révoquer ici.</p>${cloud.invites.filter(x=>x.active&&x.expiresAt?.toMillis()>Date.now()).map(x=>`<div class="list-card"><span>${esc(list.find(m=>m.id===x.matchId)?.title||'Match')} · ${new Date(x.expiresAt.toMillis()).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span><button class="button mini danger" data-action="cloud-revoke" data-token="${esc(x.id)}">Révoquer</button></div>`).join('')}</div>`:''}<div class="notice"><strong>En direct :</strong> les actions saisies se synchronisent entre les téléphones connectés. Les minutes de jeu et les remplacements continuent d'être pilotés sur l'iPhone du coach.</div><div class="list-stack">${list.length?list.map(x=>`<div class="list-card"><div><div class="strong">${esc(x.title)}</div><div class="meta">${dateString(x.date)} • ${esc(x.opponent||'Adversaire')} • Score : ${x.score.homeScore} – ${x.score.awayScore}</div></div><button class="button mini primary" data-action="cloud-select" data-id="${esc(x.id)}">Suivre en direct →</button></div>`).join(''):`<div class="empty"><strong>Aucun match partagé</strong>Depuis l'iPhone principal, ouvre un mini-match puis touche « Partager en direct ».</div>`}</div>`;
- const score=m.score;
- const statButtons=[['try','🏉 Essai'],['tackle','🛡 Plaquage'],['assist','↗ Passe décisive'],['support','🤝 Soutien'],['steal','✋ Récupération']];
- return top+`${cloud.role==='guest'?'<div class="notice">Accès parent temporaire. Note uniquement les actions du mini-match indiqué ci-dessous.</div>':''}<button class="button mini outline" data-action="cloud-back">← Tous les matchs en direct</button><h2 class="live-match-title">${esc(m.title)}</h2><div class="panel"><div class="score-board"><div><div class="score-team">RCSQ</div><div class="score-num">${score.homeScore}</div></div><div class="score-sep">—</div><div><div class="score-team">${esc(m.opponent||'Adversaire')}</div><div class="score-num">${score.awayScore}</div></div></div><div class="timer-controls"><button class="button mini outline" data-action="cloud-score" data-side="home" data-delta="1">+1 essai RCSQ (non attribué)</button><button class="button mini outline" data-action="cloud-score" data-side="away" data-delta="1">+1 essai adverse</button><button class="button mini outline" data-action="cloud-score" data-side="home" data-delta="-1">−1 RCSQ</button><button class="button mini outline" data-action="cloud-score" data-side="away" data-delta="-1">−1 adversaire</button></div><p class="mini-info">Si tu attribues un essai à un joueur ci-dessous, le score RCSQ augmente déjà de 1. Ne clique pas aussi sur +1 RCSQ.</p></div><section class="section panel"><h3>Actions par joueur</h3><p>Enregistrer une action : elle apparaît automatiquement sur le téléphone de l'éducateur.</p><div class="list-stack">${(m.roster||[]).map(p=>`<div class="list-card live-player"><div class="strong">${esc(p.firstName)}</div><div class="live-stats">${statButtons.map(([key,label])=>`<div class="live-stat-row"><span>${label} <strong>${Number(score.stats[p.id]?.[key]||0)}</strong></span><div class="live-stat-buttons"><button class="button mini outline" data-action="cloud-stat" data-id="${esc(m.id)}" data-player="${esc(p.id)}" data-stat="${key}" data-delta="1" aria-label="Ajouter ${esc(label)} à ${esc(p.firstName)}">+</button><button class="button mini outline" data-action="cloud-stat" data-id="${esc(m.id)}" data-player="${esc(p.id)}" data-stat="${key}" data-delta="-1" aria-label="Retirer ${esc(label)} à ${esc(p.firstName)}">−</button></div></div>`).join('')}</div></div>`).join('')}</div></section>${cloud.error?`<div class="notice">${esc(cloud.error)}</div>`:''}`;
-}
-function onCloudUpdate(id,result){
- const m=state?.matches.find(x=>x.id===id);if(!m)return;
- m.homeScore=result.homeScore;m.awayScore=result.awayScore;m.stats=result.stats;
- save();
- if(page==='matches' || page==='live')render();
-}
-function render(){if(!state)return;const main=({home,players,sessions,matches,exercises,settings,live:livePage})[page]||home;$('#app').innerHTML=`<div class="layout">${header()}<main>${main()}</main>${footer()}</div>`;}
-function openDialog(html){$('#dialog-inner').innerHTML=html;$('#dialog').showModal();}
-function closeDialog(){$('#dialog').close();}
-function formBtn(label='Enregistrer'){return `<div class="form-row"><button type="button" class="button outline" data-action="close">Annuler</button><button type="submit" class="button primary">${label}</button></div>`;}
-function playerModal(p=null){openDialog(`<div class="dialog-title">${p?'Modifier la fiche':'Ajouter un joueur'}</div><p class="dialog-sub">Fiche privée, enregistrée uniquement sur cet appareil.</p><form id="player-form" data-id="${esc(p?.id||'')}"><div class="form-grid"><div class="field"><label for="p-first">Prénom</label><input id="p-first" name="firstName" required maxlength="80" value="${esc(p?.firstName||'')}"></div><div class="field"><label for="p-last">Nom</label><input id="p-last" name="lastName" maxlength="80" value="${esc(p?.lastName||'')}"></div><div class="field"><label for="p-birth">Date de naissance</label><input id="p-birth" type="date" name="birthDate" value="${esc(p?.birthDate||'')}"></div><div class="field"><label for="p-license">N° carte de qualification FFR</label><input id="p-license" name="licenceNumber" inputmode="numeric" value="${esc(p?.licenceNumber||'')}"></div></div><div class="field"><label for="p-cat">Catégorie FFR</label><select id="p-cat" name="category"><option value="M-10" ${p?.category==='M-10'?'selected':''}>M-10 ans</option><option value="F-10" ${p?.category==='F-10'?'selected':''}>F-10 ans</option></select></div><div class="field"><label for="p-photo">Photo du joueur (optionnel)</label><input id="p-photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp"></div><div class="field"><label for="p-notes">Notes de suivi (facultatives)</label><textarea id="p-notes" name="notes" placeholder="Objectifs, remarques…">${esc(p?.notes||'')}</textarea></div>${formBtn('Enregistrer la fiche')}</form>`);}
-function profile(id){const p=state.players.find(p=>p.id===id);if(!p)return;const pres=state.sessions.filter(s=>s.attendance[p.id]==='yes').length;const total=state.sessions.filter(s=>s.attendance[p.id]).length;let t={};state.matches.forEach(m=>Object.entries(m.stats[p.id]||{}).forEach(([k,v])=>t[k]=(t[k]||0)+Number(v||0)));const minutesPlayed=state.matches.reduce((sum,m)=>sum+livePlayerMs(m,p.id),0);openDialog(`<div class="profile-head">${safeImage(p.photo)?`<img src="${p.photo}" alt="${esc(p.firstName)}">`:`<div class="big-initial">${esc(p.firstName[0]||'?')}</div>`}<div><span class="eyebrow">FICHE JOUEUR</span><h2>${esc(p.firstName)}</h2><p>${esc(p.lastName)}</p><span class="pill">${esc(p.category)} • RCSQ</span></div></div><div class="profile-detail"><div class="detail-box"><span>Naissance</span><strong>${dateString(p.birthDate)}</strong></div><div class="detail-box"><span>N° carte de qualification FFR</span><strong>${esc(p.licenceNumber||'Non renseigné')}</strong></div><div class="detail-box"><span>Présences enregistrées</span><strong>${pres}${total?' / '+total:''}</strong></div><div class="detail-box"><span>Essais suivis</span><strong>${Number(t.try||0)}</strong></div><div class="detail-box playtotal"><span>⏱ Temps de jeu total · Saison 2026–2027</span><strong>${totalTime(minutesPlayed)}</strong><small>Cumul des mini-matchs enregistrés</small></div></div>${p.notes?`<p class="section-note" style="margin-top:15px">${esc(p.notes)}</p>`:''}<div class="form-row"><button class="button outline" data-action="close">Fermer</button><button class="button outline" data-action="edit-player" data-id="${esc(p.id)}">Modifier</button><button class="button danger" data-action="delete-player" data-id="${esc(p.id)}">Supprimer</button></div>`);}
-function sessionModal(){openDialog(`<div class="dialog-title">Nouvelle séance</div><p class="dialog-sub">Crée une date puis coche les présences de chacun.</p><form id="session-form"><div class="field"><label for="s-title">Nom / lieu</label><input required id="s-title" name="title" placeholder="Entraînement du mercredi, plateau à …"></div><div class="form-grid"><div class="field"><label for="s-date">Date</label><input required type="date" id="s-date" name="date" value="${iso()}"></div><div class="field"><label for="s-type">Type</label><select name="type" id="s-type"><option value="entrainement">Entraînement</option><option value="plateau">Plateau</option></select></div></div>${formBtn('Créer la séance')}</form>`);}
-function matchModal(){openDialog(`<div class="dialog-title">Nouveau mini-match</div><p class="dialog-sub">Un plateau peut contenir plusieurs mini-matchs indépendants.</p><form id="match-form"><div class="field"><label>Titre</label><input name="title" required placeholder="Mini-match 1, plateau Saint-Loubès…"></div><div class="form-grid"><div class="field"><label>Date</label><input name="date" type="date" required value="${iso()}"></div><div class="field"><label>Adversaire</label><input name="opponent" placeholder="Équipe adverse"></div><div class="field"><label>Format prévu</label><select name="format"><option value="5">5 contre 5</option><option value="7">7 contre 7</option></select></div><div class="field"><label>Durée prévue (min)</label><input name="duration" type="number" min="1" max="90" value="10"></div></div>${formBtn('Créer le mini-match')}</form>`);}
-function exerciseModal(w=null){openDialog(`<div class="dialog-title">${w?'Modifier l’atelier':'Nouvel atelier'}</div><form id="exercise-form" data-id="${esc(w?.id||'')}"><div class="field"><label>Nom de l’exercice</label><input name="name" required value="${esc(w?.name||'')}"></div><div class="field"><label>Durée (minutes)</label><input name="minutes" type="number" min="1" max="180" value="${Number(w?.minutes||10)}"></div><div class="field"><label>Matériel</label><input name="equipment" value="${esc(w?.equipment||'')}"></div><div class="field"><label>Consignes</label><textarea name="description" required>${esc(w?.description||'')}</textarea></div>${formBtn()}</form>`);}
-function download(filename,text){const blob=new Blob([text],{type:'application/json;charset=utf-8'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-function importPrompt(){$('#import-file').click();}
-async function compressImage(file){if(!file||!/^image\/(jpeg|png|webp)$/.test(file.type))throw new Error('Choisis une image JPG, PNG ou WebP.');const image=await createImageBitmap(file);const limit=900, ratio=Math.min(1,limit/Math.max(image.width,image.height));const canvas=document.createElement('canvas');canvas.width=Math.round(image.width*ratio);canvas.height=Math.round(image.height*ratio);const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);image.close();return canvas.toDataURL('image/jpeg',.83);}
-function timerTick(){
- const m=state.matches.find(m=>m.id===selectedMatch);
- if(!m||!runStart){stopTimer();return}
- // Periodic private checkpoint reduces losses if Safari is interrupted mid-match.
- if(Date.now()-runStart>=15000){settleRunningSegment(m);save()}
- const el=$('#timer-value');if(el)el.textContent=clockTime(liveElapsedMs(m));
- document.querySelectorAll('[data-playertime]').forEach(node=>{node.textContent=clockTime(livePlayerMs(m,node.dataset.playertime))});
-}
-async function action(e){const btn=e.target.closest('[data-action]');if(!btn)return;const a=btn.dataset.action,id=btn.dataset.id;
- const cloud=window.RCSQLive;
- if(['open-live','cloud-back','cloud-select','cloud-logout','cloud-publish','cloud-stat','cloud-score','cloud-invite','cloud-revoke','copy-invite','share-invite'].includes(a)){
-  try{
-   if(a==='open-live'){navigate('live');return;}
-   if(a==='cloud-back'){selectedCloudMatch=null;render();return;}
-   if(a==='copy-invite'){await navigator.clipboard.writeText(btn.dataset.url);toast('Lien copié : envoie-le par WhatsApp.');return;}
-   if(a==='share-invite'){
-     const url=btn.dataset.url;
-     if(navigator.share)await navigator.share({title:'RCSQ M10 — Statistiques',text:'Voici ton lien temporaire pour noter les statistiques du match :',url});
-     else {await navigator.clipboard.writeText(url);toast('Lien copié : envoie-le au parent.');}
-     return;
-   }
-   if(a==='cloud-revoke'){
-     if(!confirm('Révoquer cet accès parent ? Il ne pourra plus enregistrer de statistiques avec ce lien.'))return;
-     await cloud.revokeInvite(btn.dataset.token);toast('Invitation révoquée.');return;
-   }
-   if(a==='cloud-invite'){
-     if(cloud?.role!=='admin'){navigate('live');toast('Connecte-toi en administrateur.');return;}
-     const match=state.matches.find(x=>x.id===id);if(!match)return;
-     if(!cloud.hasMatch(id)){
-       if(!confirm('Partager ce mini-match pour inviter un parent ? Seuls les prénoms, scores et statistiques sont envoyés.'))return;
-       await cloud.publish(match,state.players);
-     }
-     const url=await cloud.createInvite(id);
-     const svg=window.RCSQQR?.svg(url)||'';
-     openDialog(`<div class="dialog-title">📷 Inviter un parent</div><p>Il scanne ce QR code avec son téléphone : aucune adresse e-mail ni inscription. Accès limité à ce mini-match, pendant 8 heures.</p><div class="qr-wrap">${svg}</div><p class="mini-info">Internet nécessaire. Pour un parent éloigné, envoie le lien par WhatsApp. Tu pourras révoquer l'accès dans « Statistiques en direct ».</p><div class="form-row"><button class="button outline" data-action="copy-invite" data-url="${esc(url)}">Copier le lien</button><button class="button primary" data-action="share-invite" data-url="${esc(url)}">Partager le lien</button><button class="button outline" data-action="close">Fermer</button></div>`);
-     return;
-   }
-   if(a==='cloud-select'){selectedCloudMatch=id;render();return;}
-   if(a==='cloud-logout'){await cloud.logout();selectedCloudMatch=null;render();return;}
-   if(a==='cloud-publish'){
-    if(!cloud?.configured||!cloud.role){navigate('live');toast('Connecte-toi en administrateur et configure Firebase.');return;}
-    const m=state.matches.find(x=>x.id===id);if(!m)return;
-    if(cloud.hasMatch(id)){selectedCloudMatch=id;navigate('live');return;}
-    if(!confirm('Partager ce match en direct ? Seuls les prénoms des joueurs, les scores et les statistiques seront envoyés aux comptes autorisés.'))return;
-    await cloud.publish(m,state.players);selectedCloudMatch=id;navigate('live');toast('Mini-match partagé.');return;
-   }
-   if(a==='cloud-stat'||a==='cloud-score'){
-    const matchId=a==='cloud-stat'?id:selectedCloudMatch;if(!matchId)return;
-    const ev=a==='cloud-stat'?{kind:'stat',playerId:btn.dataset.player,stat:btn.dataset.stat,delta:Number(btn.dataset.delta)}:{kind:'score',side:btn.dataset.side,delta:Number(btn.dataset.delta)};
-    await cloud.record(matchId,ev);toast('Action enregistrée et synchronisée.');return;
-   }
-  }catch(err){toast('Direct : '+err.message);return;}
- }
+  const FFR_SOURCE = 'FFR • Séance atelier n°1 • octobre 2026';
+  const trainingLibrary = [
+    {id:'ech1',category:'Échauffement',title:'Échauffement ballon',duration:10,players:'8-14',goal:'Mettre les enfants en route avec ballon, course, passes et appuis.',equipment:{Plots:6,Ballons:4},notes:['Courses variées avec ballon','Ballon en l’air puis réception','Passes simples en avançant']},
+    {id:'pass1',category:'Passe / Réception',title:'Passe en mouvement',duration:15,players:'8-12',goal:'Améliorer la qualité de passe en avançant.',equipment:{Plots:6,Ballons:3},notes:['Courir droit avant la passe','Regarder la cible','Mains prêtes à recevoir']},
+    {id:'sout1',category:'Soutien',title:'Le passeur devient premier soutien',duration:15,players:'8-12',goal:'Créer le réflexe de soutien immédiat après la passe.',equipment:{Plots:6,Ballons:3},notes:['Le passeur suit sa passe','Se rendre disponible près du porteur','Communiquer']},
+    {id:'att1',category:'Attaque',title:'2 attaquants vs 1 défenseur',duration:15,players:'6-12',goal:'Fixer le défenseur et jouer le surnombre.',equipment:{Plots:8,Ballons:2},notes:['Porter droit','Fixer avant de passer','Soutien proche']},
+    {id:'pla1',category:'Plaquage',title:'Parcours plaquage',duration:15,players:'8-12',goal:'Travailler progressivement la sécurité et la technique de plaquage.',equipment:{Plots:6,Boucliers:2,Matelas:1,Ballons:2},notes:['Tête placée en sécurité','Engagement des bras','Accompagner au sol sans se jeter']},
+    {id:'ruck1',category:'Ruck / Libération',title:'Plaquage + ruck simple',duration:15,players:'8-12',goal:'Enchaîner plaquage, libération du ballon et arrivée du premier soutien.',equipment:{Plots:4,Boucliers:2,Matelas:1,Ballons:2,Piquets:2},notes:['Porteur présente le ballon','Soutien arrive vite','Entrée dans l’axe et sur les appuis']},
+    {id:'def1',category:'Défense',title:'Défenseur sur ses appuis',duration:10,players:'6-10',goal:'Améliorer les appuis et la montée défensive.',equipment:{Plots:4},notes:['Petits pas rapides','Buste engagé','Ne pas croiser les pieds']},
+    {id:'jeu1',category:'Jeu réduit',title:'Toucher + 2 secondes',duration:15,players:'8-14',goal:'Enchaîner rapidement après le toucher et jouer ensemble.',equipment:{Plots:8,Ballons:2,Chasubles:10},notes:['2 secondes maximum pour jouer','Soutien proche','Communication']},
+    {id:'jeu2',category:'Jeu ludique',title:'Jeu du foulard',duration:10,players:'5-10',goal:'Travail d’esquive, d’appuis et de coopération.',equipment:{Foulards:4},notes:['Quatre joueurs en ronde','Un chasseur tente de saisir le foulard','Bouger ensemble sans se lâcher']},
+    {id:'mot1',category:'Motricité / Appuis',title:'Relais 4 vs 4 autour des plots',duration:10,players:'8-12',goal:'Coordination collective et vitesse de réaction.',equipment:{Plots:8},notes:['Contourner le plot puis revenir','Rester unis','Le premier groupe arrivé au complet gagne']},
+    {id:'pass2',category:'Passe / Réception',title:'Passes roulées à demi-genoux',duration:8,players:'4-10',goal:'Travail de précision sur la passe roulée.',equipment:{Ballons:2},notes:['Se mettre à demi-genoux','Commencer à 3 mètres','Augmenter progressivement la distance']},
 
- switch(a){
- case 'navigate':navigate(btn.dataset.to);break;
- case 'close':closeDialog();break;
- case 'import':importPrompt();break;
- case 'export':download('RCSQ-M10-SAUVEGARDE-PRIVEE-'+iso()+'.json',JSON.stringify({...state,exportedAt:new Date().toISOString()},null,2));toast('Sauvegarde privée téléchargée.');break;
- case 'profile':profile(id);break;
- case 'new-player':playerModal();break;
- case 'edit-player':{const p=state.players.find(p=>p.id===id);if(p){closeDialog();playerModal(p)}}break;
- case 'delete-player':if(confirm('Supprimer ce joueur et son portrait local ? Ses statistiques historiques ne seront plus affichées.')){state.players=state.players.filter(p=>p.id!==id);state.matches.forEach(m=>{m.lineup=m.lineup.filter(x=>x!==id)});save();closeDialog();render();toast('Fiche supprimée.')}break;
- case 'new-session':sessionModal();break;
- case 'open-session':selectedSession=id;page='sessions';render();break;
- case 'back-sessions':selectedSession=null;render();break;
- case 'delete-session':if(confirm('Supprimer cette séance et toutes ses présences ?')){state.sessions=state.sessions.filter(s=>s.id!==id);selectedSession=null;save();render();toast('Séance supprimée.')}break;
- case 'attendance':{const s=state.sessions.find(s=>s.id===btn.dataset.session);if(!s)return;const old=s.attendance[btn.dataset.player];if(old===btn.dataset.status)delete s.attendance[btn.dataset.player];else s.attendance[btn.dataset.player]=btn.dataset.status;save();render();break;}
- case 'new-match':matchModal();break;
- case 'open-match':{pauseRunningMatch();selectedMatch=id;page='matches';render();break;}
- case 'back-matches':{pauseRunningMatch();selectedMatch=null;render();break;}
- case 'delete-match':if(cloud?.hasMatch(id)){toast('Match partagé : conserve-le jusqu’à la fin du suivi. Archive-le dans Firebase avant suppression locale.');break;}if(confirm('Supprimer ce mini-match et ses statistiques ?')){stopTimer();state.matches=state.matches.filter(m=>m.id!==id);selectedMatch=null;save();render();toast('Mini-match supprimé.')}break;
- case 'lineup':{const m=state.matches.find(m=>m.id===selectedMatch);if(!m)return;const i=m.lineup.indexOf(id);if(i<0&&m.lineup.length>=m.format){toast(`Maximum ${m.format} joueurs sur le terrain. Fais sortir un joueur avant d’en faire entrer un autre.`);return;}if(runStart)settleRunningSegment(m);if(i>=0)m.lineup.splice(i,1);else m.lineup.push(id);save();render();break;}
- case 'score':case 'undo-score':{const m=state.matches.find(m=>m.id===selectedMatch);if(!m)return;if(cloud?.hasMatch(m.id)){try{await cloud.record(m.id,{kind:'score',side:btn.dataset.side,delta:a==='score'?1:-1})}catch(err){toast('Direct : '+err.message)}break;}const prop=btn.dataset.side==='home'?'homeScore':'awayScore';m[prop]=Math.max(0,m[prop]+(a==='score'?1:-1));save();render();break;}
- case 'add-stat':{const m=state.matches.find(m=>m.id===selectedMatch);if(!m)return;const pid=btn.dataset.player,k=btn.dataset.stat;const valid=['try','tackle','assist','support','steal'];if(!valid.includes(k))return;if(cloud?.hasMatch(m.id)){try{await cloud.record(m.id,{kind:'stat',playerId:pid,stat:k,delta:1})}catch(err){toast('Direct : '+err.message)}break;}m.stats[pid]??={};m.stats[pid][k]=(m.stats[pid][k]||0)+1;if(k==='try')m.homeScore++;save();render();toast('Action enregistrée.');break;}
- case 'timer-start':{if(runStart)return;runStart=Date.now();interval=setInterval(timerTick,1000);render();break;}
- case 'timer-pause':{pauseRunningMatch();render();break;}
- case 'timer-reset':{if(!confirm('Remettre à zéro le chrono ET les temps de jeu de TOUS les joueurs de ce mini-match ? Les scores et les autres statistiques restent enregistrés.'))return;const m=state.matches.find(m=>m.id===selectedMatch);stopTimer();if(m){m.elapsed=0;m.elapsedMs=0;m.playTimeMs={}}save();render();break;}
- case 'new-exercise':exerciseModal();break;
- case 'edit-exercise':exerciseModal(state.exercises.find(w=>w.id===id));break;
- case 'delete-exercise':if(confirm('Supprimer cet atelier ?')){state.exercises=state.exercises.filter(w=>w.id!==id);save();render();}break;
- case 'pick-branding':{const field=btn.dataset.field;const input=document.createElement('input');input.type='file';input.accept='image/jpeg,image/png,image/webp';input.onchange=async()=>{if(!input.files[0])return;try{state.branding[field]=await compressImage(input.files[0]);save();render();toast('Image enregistrée sur cet appareil.')}catch(e){toast(e.message)}};input.click();break;}
- case 'reset-branding':if(confirm('Retirer les images de personnalisation locales ?')){state.branding={cover:'',logo:''};save();render();}break;
- case 'erase':if(confirm('Effacer définitivement toutes les fiches, photos, présences et statistiques de cet appareil ? Fais une sauvegarde privée avant.')){if(!confirm('Dernière confirmation : toutes les données locales seront perdues.'))return;stopTimer();state=emptyState();selectedMatch=selectedSession=null;save();navigate('home');toast('Données effacées de l’application.')}break;
- }
-}
-async function submit(e){const f=e.target;if(f.id==='cloud-login-form'){e.preventDefault();const d=new FormData(f);try{await window.RCSQLive.login(d.get('email'),d.get('password'));toast('Connexion réussie.');}catch(err){toast('Connexion : '+err.message)}return;}if(!['player-form','session-form','match-form','exercise-form'].includes(f.id))return;e.preventDefault();const data=Object.fromEntries(new FormData(f).entries());
- if(f.id==='player-form'){
-  let p=state.players.find(p=>p.id===f.dataset.id);
-  if(!p){p={id:uid('player'),photo:''};state.players.push(p)}
-  Object.assign(p,{firstName:String(data.firstName||'').trim(),lastName:String(data.lastName||'').trim(),birthDate:String(data.birthDate||''),licenceNumber:String(data.licenceNumber||''),category:data.category==='F-10'?'F-10':'M-10',notes:String(data.notes||'').slice(0,1500)});
-  if(data.photo instanceof File&&data.photo.size){try{p.photo=await compressImage(data.photo)}catch(err){toast(err.message)}}
- }
- if(f.id==='session-form'){const s={id:uid('session'),title:String(data.title).trim(),date:String(data.date),type:data.type==='plateau'?'plateau':'entrainement',attendance:{}};state.sessions.push(s);selectedSession=s.id;page='sessions';}
- if(f.id==='match-form'){const m={id:uid('match'),title:String(data.title).trim(),date:String(data.date),opponent:String(data.opponent||''),format:Number(data.format)===7?7:5,duration:Math.min(90,Math.max(1,Number(data.duration)||10)),lineup:[],homeScore:0,awayScore:0,elapsed:0,elapsedMs:0,playTimeMs:{},stats:{}};state.matches.push(m);selectedMatch=m.id;page='matches';}
- if(f.id==='exercise-form'){let w=state.exercises.find(x=>x.id===f.dataset.id);if(!w){w={id:uid('work')};state.exercises.push(w)}Object.assign(w,{name:String(data.name||''),minutes:Math.min(180,Math.max(1,Number(data.minutes)||10)),equipment:String(data.equipment||''),description:String(data.description||'')});}
- save();closeDialog();render();toast('Enregistré sur cet appareil.');
-}
-function search(e){if(e.target.id==='player-search'){searchTerm=e.target.value;const cursor=e.target.selectionStart;render();const node=$('#player-search');node.focus();node.setSelectionRange(cursor,cursor);}}
-async function importJSON(e){const file=e.target.files?.[0];e.target.value='';if(!file)return;try{if(file.size>16*1024*1024)throw new Error('Fichier trop volumineux (16 Mo maximum).');const data=normalize(JSON.parse(await file.text()));if(state.players.length&&!confirm('Cette importation remplacera TOUTES les données actuelles de cette application. Continuer ?'))return;stopTimer();state=data;selectedSession=selectedMatch=null;clearTimeout(saveTimer);await dbPut(state);navigate('home');toast(`${state.players.length} joueurs importés en privé, sur cet appareil !`);}catch(err){toast('Import impossible : '+err.message);}}
-async function init(){try{db=await openDB();state=normalize(await dbGet()||emptyState());if(/^#invite=[a-f0-9]{48}$/.test(location.hash))page='live';render();document.addEventListener('click',action);document.addEventListener('submit',submit);document.addEventListener('input',search);$('#import-file').addEventListener('change',importJSON);$('#dialog').addEventListener('click',e=>{if(e.target===$('#dialog'))closeDialog();});window.RCSQLive?.start(()=>{if(page==='live')render()},onCloudUpdate);function leaveApp(){if(runStart){const m=state.matches.find(m=>m.id===selectedMatch);if(m){settleRunningSegment(m);dbPut(state).catch(()=>{})}stopTimer()}}
- window.addEventListener('pagehide',leaveApp);
- document.addEventListener('visibilitychange',()=>{if(document.hidden&&runStart){leaveApp()}else if(!document.hidden&&state&&page==='matches'&&selectedMatch){render()}});
-if('serviceWorker' in navigator&&location.protocol==='https:'||('serviceWorker' in navigator&&location.hostname==='localhost'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
- }catch(err){$('#app').innerHTML=`<div class="loading-wrap"><div class="loading-badge">RCSQ M10</div><p>Stockage local indisponible.</p><p style="max-width:430px;text-align:center">Ouvre l’application dans Safari sans navigation privée et vérifie que le stockage du navigateur est autorisé.</p><pre>${esc(err.message)}</pre></div>`;}}
-init();
+    // Ajouts basés sur la proposition DTN/FFR d'octobre 2026
+    {id:'ffr-freeze',category:'Manipulation / Course',title:'Mr Freeze',duration:15,players:'8-14',goal:'Courir avec le ballon, éviter, cibler et suivre un adversaire tout en améliorant posture et gainage.',equipment:{Plots:8,Ballons:4},notes:['Prise d’information avant d’accélérer','Varier les appuis','Conserver une posture stable'],source:FFR_SOURCE},
+    {id:'ffr-vagues',category:'Manipulation / Passe',title:'Croix et vagues — 3 temps',duration:15,players:'8-14',goal:'Attraper, passer puis se replacer par rapport aux partenaires.',equipment:{Plots:8,Ballons:4},notes:['Placement des mains avant, pendant et après la passe','Regard vers la cible','Direction de course et timing'],source:FFR_SOURCE},
+    {id:'ffr-t2s',category:'Jeu réduit',title:'5 contre 5 — Toucher +2 secondes',duration:15,players:'10',goal:'Jouer à effectif réduit avec contact réglementé et prise de décision rapide.',equipment:{Plots:8,Ballons:2,Chasubles:10},notes:['Avancer avant de passer','Se replacer rapidement','Faire vivre le ballon après le toucher'],source:FFR_SOURCE},
+    {id:'ffr-lutte4',category:'Contact / Renforcement',title:'Lutte à 4 appuis',duration:15,players:'4-12',goal:'Améliorer le gainage, la posture et la capacité à s’opposer en sécurité.',equipment:{Matelas:2},notes:['Commencer par une phase d’échauffement','Dos gainé et tête relevée','Contrôler la chute'],source:FFR_SOURCE},
+    {id:'ffr-1v1',category:'Contact',title:'1 contre 1 — s’orienter et marquer',duration:15,players:'6-12',goal:'S’opposer, lutter, s’orienter, éviter au contact et jouer avec les pressions.',equipment:{Plots:8,Ballons:2,Matelas:1},notes:['Regard sur l’adversaire','Posture stable','Placement de la tête et engagement des bras','Respecter les règles de sécurité'],source:FFR_SOURCE},
+    {id:'ffr-2v2',category:'Contact / Coopération',title:'2 contre 2 — avancer en coopérant',duration:15,players:'8-12',goal:'Coopérer dans la lutte et avancer ensemble au contact.',equipment:{Plots:8,Ballons:2,Chasubles:8},notes:['S’orienter ensemble','Communiquer','Soutenir le partenaire dans l’avancée'],source:FFR_SOURCE},
+    {id:'ffr-jco',category:'Jeu au contact',title:'5 contre 5 — jeu au contact',duration:15,players:'10',goal:'Réinvestir les apprentissages de contact dans une situation jouée.',equipment:{Plots:8,Ballons:2,Chasubles:10},notes:['Avancer en sécurité','Soutien proche','Se replacer vite après le contact'],source:FFR_SOURCE}
+  ];
+
+  const coachPhrases = {
+    'Mi-temps':[
+      'On repart simple : on avance, on soutient et on défend ensemble.',
+      'Le passeur devient premier soutien : on ne regarde pas le copain jouer, on l’accompagne.',
+      'En défense, on monte tous ensemble et on reste sur nos appuis.',
+      'On lève la tête, on parle et on cherche les espaces.',
+      'Gardez le plaisir, mais restez concentrés sur les petites choses simples.',
+      'On plaque proprement, on se relève vite et on se replace.',
+      'Très bien pour l’envie. Maintenant, encore plus de collectif et de communication.',
+      'Le ballon va plus vite que nous : on fait vivre la passe quand l’espace est là.'
+    ],
+    'Fin de match':[
+      'Bravo les enfants : ce qui compte, c’est l’envie, l’entraide et les progrès.',
+      'Vous pouvez être fiers de vos efforts. On garde le positif et on travaillera le reste mercredi.',
+      'Très bon état d’esprit : vous êtes restés ensemble jusqu’au bout.',
+      'Aujourd’hui on a appris. Le prochain match, on essaie de faire encore un peu mieux.',
+      'Bravo pour le courage. On se félicite, on respecte l’adversaire et on garde le sourire.',
+      'Ce que j’ai aimé : vous avez essayé de jouer ensemble. C’est ça qu’on veut continuer.'
+    ],
+    'Motiver':[
+      'On joue ensemble, on avance ensemble !',
+      'On ne lâche rien, mais on garde la tête froide !',
+      'Faites-vous confiance et aidez le copain !',
+      'On garde l’envie et le sourire !',
+      'Chaque ballon est une nouvelle action : on se reconcentre tout de suite.'
+    ],
+    'Règles / sécurité':[
+      'On respecte l’arbitre, les copains et les adversaires.',
+      'Plaquage en sécurité : on engage les bras et on garde la tête bien placée.',
+      'Au sol, on libère le ballon et on se relève.',
+      'Dans le ruck : on reste sur ses appuis et on entre par son camp.',
+      'On ne se jette pas : on contrôle ses gestes.'
+    ]
+  };
+
+  const defaultPlayer = (name, i) => ({
+    id:'p'+(i+1), name, photo:null, qualificationNumber:null, birthDate:null, ffrClass:null, licenceType:null, totalSeconds:0,
+    stats:{plaquages:0,essais:0,matches:0}, notes:''
+  });
+
+  const initialState = {
+    version:APP_VERSION,
+    route:'home',
+    players:names.map(defaultPlayer),
+    currentPlateau:null,
+    currentMatch:null,
+    history:[],
+    selectedTraining:['ech1','sout1','pla1','jeu1'],
+    ui:{matchTab:'terrain',pendingOutId:null,coachCategory:'Mi-temps'}
+  };
+
+  let state = loadAndMigrate();
+  let tickTimer = null;
+  let wakeLock = null;
+
+  const content = document.getElementById('content');
+  const title = document.getElementById('pageTitle');
+  const modal = document.getElementById('modal');
+  const modalContent = document.getElementById('modalContent');
+  const toast = document.getElementById('toast');
+  const nav = [...document.querySelectorAll('.nav-item')];
+
+  function loadAndMigrate(){
+    let raw=null;
+    try{ raw=JSON.parse(localStorage.getItem(LS_KEY)); }catch{}
+    if(!raw) return structuredClone(initialState);
+    const s = raw;
+    s.version = APP_VERSION;
+    s.route ||= 'home';
+    s.players ||= names.map(defaultPlayer);
+    s.players = s.players.map((p,i)=>({
+      id:p.id || 'p'+(i+1), name:p.name || names[i] || 'Joueur',
+      photo:(p.photo && !String(p.photo).startsWith('assets/players/')) ? p.photo : null,
+      qualificationNumber:p.qualificationNumber||null, birthDate:p.birthDate||null, ffrClass:p.ffrClass||null, licenceType:p.licenceType||null,
+      totalSeconds:Number(p.totalSeconds||0), notes:p.notes||'',
+      stats:{plaquages:Number(p.stats?.plaquages||0),essais:Number(p.stats?.essais||0),matches:Number(p.stats?.matches||0)}
+    }));
+    s.currentPlateau ||= null;
+    s.history ||= [];
+    s.selectedTraining ||= ['ech1','sout1','pla1','jeu1'];
+    s.ui = {...initialState.ui,...(s.ui||{})};
+    // Ancienne version : on garde le match si possible, avec seulement les 2 stats utiles.
+    if(s.currentMatch){
+      s.currentMatch.matchStats ||= {};
+      Object.keys(s.currentMatch.matchStats).forEach(pid=>{
+        s.currentMatch.matchStats[pid] = {
+          plaquages:Number(s.currentMatch.matchStats[pid]?.plaquages||0),
+          essais:Number(s.currentMatch.matchStats[pid]?.essais||0)
+        };
+      });
+      s.currentMatch.phase ||= '1re mi-temps';
+      s.currentMatch.number ||= 1;
+      s.currentMatch.actionLog ||= [];
+      s.currentMatch.running = Boolean(s.currentMatch.running);
+    }
+    return s;
+  }
+  function save(){ try{ localStorage.setItem(LS_KEY,JSON.stringify(state)); }catch{} }
+  function showToast(msg){ toast.textContent=msg; toast.hidden=false; clearTimeout(showToast._t); showToast._t=setTimeout(()=>toast.hidden=true,1700); }
+  function player(id){ return state.players.find(p=>p.id===id); }
+  function fmt(sec){ sec=Math.max(0,Math.floor(sec||0)); return `${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`; }
+  function avatarHTML(p, cls=''){ return `<div class="avatar ${cls}">${p.photo?`<img src="${p.photo}" alt="${p.name}">`:p.name.slice(0,1)}</div>`; }
+  function routeTo(route){ state.route=route; save(); render(); }
+  function pageTitle(){ return ({home:'Accueil',squad:'Effectif',match:'Match',training:'Entraînements',stats:'Statistiques'})[state.route]||'RCSQ M10'; }
+
+  function matchElapsed(now=Date.now()){
+    const m=state.currentMatch;if(!m)return 0;
+    return Number(m.elapsedBefore||0)+(m.running&&m.startedAt?Math.max(0,(now-m.startedAt)/1000):0);
+  }
+  function playerMatchTime(pid, now=Date.now()){
+    const m=state.currentMatch;if(!m)return 0;
+    const r=m.playerTimes?.[pid];if(!r)return 0;
+    return Number(r.acc||0)+(m.running&&r.onField&&r.lastStart?Math.max(0,(now-r.lastStart)/1000):0);
+  }
+  function settleRunning(now=Date.now()){
+    const m=state.currentMatch;if(!m||!m.running)return;
+    m.elapsedBefore=matchElapsed(now);
+    m.startedAt=null;
+    Object.values(m.playerTimes||{}).forEach(r=>{
+      if(r.onField&&r.lastStart){r.acc=Number(r.acc||0)+Math.max(0,(now-r.lastStart)/1000);r.lastStart=null;}
+    });
+  }
+  function pauseMatch(){ const m=state.currentMatch;if(!m||!m.running)return; settleRunning();m.running=false;save();releaseWakeLock();render(); }
+  function resumeMatch(){ const m=state.currentMatch;if(!m||m.running)return;const now=Date.now();m.running=true;m.startedAt=now;Object.values(m.playerTimes||{}).forEach(r=>{if(r.onField)r.lastStart=now;});save();requestWakeLock();render(); }
+
+  async function requestWakeLock(){ try{if('wakeLock'in navigator)wakeLock=await navigator.wakeLock.request('screen');}catch{} }
+  async function releaseWakeLock(){ try{if(wakeLock){await wakeLock.release();wakeLock=null;}}catch{} }
+  function ensureTick(){ clearInterval(tickTimer);if(state.currentMatch?.running){tickTimer=setInterval(()=>{if(state.route==='match')render();},1000);} }
+
+  function render(){
+    title.textContent=pageTitle();
+    nav.forEach(n=>n.classList.toggle('active',n.dataset.route===state.route));
+    if(state.route==='home')renderHome();
+    else if(state.route==='squad')renderSquad();
+    else if(state.route==='match')renderMatch();
+    else if(state.route==='training')renderTraining();
+    else renderStats();
+    ensureTick();
+  }
+
+  function renderHome(){
+    const p=state.currentPlateau;
+    content.innerHTML=`
+      <section class="card hero">
+        <div class="hero-img" style="background-image:url('assets/accueil-dessin-equipe.jpg')">
+          <img src="assets/rcsq-logo.png" class="hero-logo" alt="RCSQ">
+          <div class="hero-info">
+            <h2>RCSQ M10</h2><p>Matchs, temps de jeu, remplacements et entraînements.</p>
+            <div class="hero-actions"><button class="btn primary" data-route-link="match">🏉 Match</button><button class="btn secondary" data-route-link="training">🚩 Entraînement</button></div>
+          </div>
+        </div>
+      </section>
+      ${p?`<section class="card"><div class="split"><div><strong>${p.name}</strong><div class="subtitle">${p.rosterIds.length} présents • ${p.format} contre ${p.format}</div></div><span class="badge green">Plateau en cours</span></div><div class="chips" style="margin-top:10px">${p.rosterIds.map(id=>`<span class="chip">${player(id)?.name||''}</span>`).join('')}</div><button class="btn blue full" style="margin-top:12px" data-route-link="match">Ouvrir le plateau</button></section>`:''}
+      <section class="grid2">
+        <button class="menu-tile" data-route-link="squad"><span>👥</span>Effectif</button>
+        <button class="menu-tile" data-route-link="stats"><span>📊</span>Statistiques</button>
+        <button class="menu-tile" data-action="open-coach"><span>🎤</span>Phrases coach</button>
+        <button class="menu-tile" data-route-link="training"><span>📚</span>Ateliers</button>
+      </section>
+      <section class="card"><div class="split"><div><strong>Version terrain</strong><div class="subtitle">Les chronos sont calculés avec l’heure réelle : appel, SMS ou écran verrouillé ne bloquent pas le temps de jeu.</div></div><span class="badge">v${APP_VERSION}</span></div></section>
+      <section class="card"><div class="split-wrap"><div><strong>Données joueurs privées</strong><div class="subtitle">Photos, dates de naissance et n° FFR restent uniquement sur cet appareil.</div></div><label class="tiny-btn green">Charger les fiches<input id="playerDataInput" class="hidden" type="file" accept="application/json"></label></div><div class="warning" style="margin-top:10px">⚠️ Le fichier de fiches joueurs ne doit jamais être envoyé sur GitHub Pages.</div></section>
+      <section class="card"><div class="split-wrap"><div><strong>Sauvegarde locale</strong><div class="subtitle">L’export contient aussi les données privées : garde-le dans tes fichiers personnels.</div></div><div class="chips"><button class="tiny-btn" data-action="export">Exporter</button><label class="tiny-btn">Restaurer<input id="importInput" class="hidden" type="file" accept="application/json"></label></div></div></section>`;
+  }
+
+  function renderSquad(){
+    const roster=new Set(state.currentPlateau?.rosterIds||[]);
+    content.innerHTML=`<section class="card"><div class="split"><div><strong>Effectif M10 (${state.players.length})</strong><div class="subtitle">Les photos et infos FFR apparaissent après chargement du fichier privé sur ton iPhone.</div></div></div><div class="list" style="margin-top:12px">${state.players.map(p=>`<div class="player-row"><div class="row-left">${avatarHTML(p)}<div><strong>${p.name}</strong><small>${roster.has(p.id)?'Présent sur le plateau en cours':'Joueur M10'}</small></div></div><button class="tiny-btn" data-open-player="${p.id}">Fiche</button></div>`).join('')}</div></section>`;
+  }
+
+  function renderMatch(){
+    if(state.currentMatch) return renderLiveMatch();
+    if(!state.currentPlateau) return renderPlateauSetup();
+    return renderPlateauHub();
+  }
+
+  function renderPlateauSetup(){
+    content.innerHTML=`
+      <section class="card">
+        <div class="title-row"><div><strong>Présence plateau</strong><div class="subtitle">Tu choisis les présents une fois. Seuls eux seront proposés dans Match 1, Match 2, etc.</div></div><span class="badge">${state.players.length} joueurs</span></div>
+        <div class="form-grid">
+          <div><label>Nom du plateau</label><input id="plateauName" class="input" value="Plateau du samedi"></div>
+          <div><label>Format</label><div class="seg"><button class="plateau-fmt active" data-fmt="5">5 contre 5</button><button class="plateau-fmt" data-fmt="7">7 contre 7</button></div></div>
+          <div><label>Joueurs présents</label><div class="player-pick-grid" id="rosterPicker">${state.players.map(p=>`<button class="pick-btn active" data-roster-pick="${p.id}">${p.name}</button>`).join('')}</div></div>
+          <button class="btn primary" data-action="create-plateau">Créer le plateau</button>
+        </div>
+      </section>`;
+  }
+
+  function renderPlateauHub(){
+    const p=state.currentPlateau;
+    const last=p.matches?.[0];
+    content.innerHTML=`
+      <section class="card"><div class="split"><div><strong>${p.name}</strong><div class="subtitle">${p.rosterIds.length} présents • format ${p.format}v${p.format}</div></div><span class="badge green">${p.matches?.length||0} match(s)</span></div><div class="chips" style="margin-top:10px">${p.rosterIds.map(id=>`<span class="chip">${player(id)?.name||''}</span>`).join('')}</div></section>
+      ${last?`<section class="card"><strong>Dernier match</strong><div class="split" style="margin-top:8px"><span>${last.name}</span><strong>${last.score.us} - ${last.score.them}</strong></div></section>`:''}
+      <section class="card"><div class="center"><strong style="font-size:22px">Match ${p.nextMatchNumber}</strong><div class="subtitle" style="margin-top:4px">Choisis la composition de départ parmi les présents du plateau.</div></div><div class="player-pick-grid" id="starterPicker" style="margin-top:12px">${p.rosterIds.map((id,i)=>{const pl=player(id);return `<button class="pick-btn ${i<p.format?'active':''}" data-starter-pick="${id}">${pl.name}</button>`}).join('')}</div><button class="btn primary full" style="margin-top:12px" data-action="start-next-match">Commencer Match ${p.nextMatchNumber}</button></section>
+      <section class="card"><div class="split"><div><strong>Changer la présence</strong><div class="subtitle">Si un enfant arrive ou repart, tu peux modifier le plateau.</div></div><button class="tiny-btn" data-action="edit-roster">Modifier</button></div></section>
+      <section class="card"><button class="btn ghost full" data-action="close-plateau">Terminer le plateau</button></section>`;
+  }
+
+  function renderLiveMatch(){
+    const m=state.currentMatch, now=Date.now();
+    const onField=m.lineup.map(player).filter(Boolean), bench=m.bench.map(player).filter(Boolean);
+    const tab=state.ui.matchTab||'terrain';
+    content.innerHTML=`
+      <section class="score-card">
+        <div class="score-top">
+          <div><div class="badge">RCSQ</div><div class="score-num">${m.score.us}</div><button class="tiny-btn" data-score="us">+1</button></div>
+          <div><div class="phase">Match ${m.number} • ${m.phase}</div><div class="match-clock">${fmt(matchElapsed(now))}</div></div>
+          <div><div class="badge red">ADVERSAIRE</div><div class="score-num" style="color:var(--red)">${m.score.them}</div><button class="tiny-btn red" data-score="them">+1</button></div>
+        </div>
+        <div class="match-controls">
+          <button class="btn ${m.running?'primary':'green'}" data-action="${m.running?'pause-match':'resume-match'}">${m.running?'⏸ Pause':'▶ Reprendre'}</button>
+          <button class="btn blue" data-action="half-time">Mi-temps</button>
+          <button class="btn danger" data-action="end-match">■ FIN MATCH</button>
+        </div>
+      </section>
+      <div class="tabs"><button class="tab-btn ${tab==='terrain'?'active':''}" data-match-tab="terrain">Terrain / remplacements</button><button class="tab-btn ${tab==='stats'?'active':''}" data-match-tab="stats">Stats express</button></div>
+      ${tab==='terrain'?terrainHTML(m,onField,bench,now):statsExpressHTML(m,onField,now)}
+      <section class="card"><div class="split"><div><strong>Phrases coach</strong><div class="subtitle">Accès rapide pendant une pause.</div></div><button class="tiny-btn yellow" data-action="open-coach">🎤 Ouvrir</button></div></section>`;
+  }
+
+  function terrainHTML(m,onField,bench,now){
+    const pending=state.ui.pendingOutId;
+    return `<section class="card" style="padding:10px">
+      <div class="pitch">
+        <div class="field-title">RCSQ • ${onField.length} joueurs sur le terrain</div>
+        <div class="field-grid">${onField.map((p,i)=>`<button class="field-player pos-${m.format}-${i} ${pending===p.id?'selected-out':''}" data-field-player="${p.id}">${avatarHTML(p)}<div class="fname">${p.name}</div><div class="ftime">${fmt(playerMatchTime(p.id,now))}</div></button>`).join('')}</div>
+        <div class="replacement-help">${pending?`✅ ${player(pending).name} sort : touche maintenant le remplaçant qui entre.`:'🔁 Pour changer : touche d’abord un joueur sur le terrain, puis un remplaçant.'}</div>
+      </div>
+      <div class="bench-section"><div class="split"><strong>Remplaçants (${bench.length})</strong>${pending?`<button class="tiny-btn red" data-action="cancel-replace">Annuler</button>`:''}</div><div class="bench-scroll" style="margin-top:9px">${bench.map(p=>`<button class="bench-player ${pending?'ready-in':''}" data-bench-player="${p.id}">${avatarHTML(p)}<div class="bname">${p.name}</div><div class="btime">${fmt(playerMatchTime(p.id,now))}</div></button>`).join('')||'<span class="subtitle">Aucun remplaçant</span>'}</div></div>
+    </section>`;
+  }
+
+  function statsExpressHTML(m,onField,now){
+    return `<section>${onField.map(p=>`<article class="stats-player-card"><div class="stats-player-head"><div class="row-left">${avatarHTML(p)}<div><strong>${p.name}</strong><div class="subtitle">Temps ${fmt(playerMatchTime(p.id,now))}</div></div></div><span class="badge">sur le terrain</span></div><div class="two-actions"><button class="action-btn tackle" data-stat="plaquages" data-player="${p.id}">PLAQUAGE +1<small>${m.matchStats[p.id]?.plaquages||0}</small></button><button class="action-btn try" data-stat="essais" data-player="${p.id}">ESSAI +1<small>${m.matchStats[p.id]?.essais||0}</small></button></div></article>`).join('')}</section><section class="card"><div class="split"><span class="subtitle">Erreur de saisie ?</span><button class="tiny-btn red" data-action="undo">Annuler dernière stat</button></div></section>`;
+  }
+
+  function renderTraining(){
+    const selected=state.selectedTraining.map(id=>trainingLibrary.find(x=>x.id===id)).filter(Boolean);
+    content.innerHTML=`
+      <section class="card"><div class="split"><div><strong>Ma séance</strong><div class="subtitle">${selected.reduce((a,x)=>a+x.duration,0)} min • ${selected.length} ateliers</div></div><button class="tiny-btn green" data-action="ffr-template">Séance FFR oct. 2026</button></div><div class="list" style="margin-top:12px">${selected.map(ex=>exerciseRow(ex,true)).join('')||'<div class="subtitle">Aucun atelier sélectionné.</div>'}</div><button class="btn blue full" style="margin-top:12px" data-action="open-library">+ Ajouter des ateliers</button></section>
+      <section class="card"><div class="split"><div><strong>Matériel de la séance</strong><div class="subtitle">Calcul automatique</div></div></div><div style="margin-top:8px">${Object.entries(calcEquipment()).map(([k,v])=>`<div class="eq-row"><span>${k}</span><strong>${v}</strong></div>`).join('')||'<span class="subtitle">Aucun matériel calculé.</span>'}</div></section>
+      <section class="card"><strong>Ajouts FFR 2026-2027</strong><div class="subtitle" style="margin-top:4px">Mr Freeze, croix/vagues, lutte à 4 appuis, 1v1, 2v2, toucher +2 s et jeu au contact sont intégrés dans la bibliothèque.</div></section>`;
+  }
+  function exerciseRow(ex,removable=false){return `<div class="exercise-row"><div><strong>${ex.title}</strong><div class="subtitle">${ex.duration} min • ${ex.category}</div>${ex.source?`<span class="source-tag">${ex.source}</span>`:''}</div><div class="chips"><button class="tiny-btn" data-open-ex="${ex.id}">Voir</button>${removable?`<button class="tiny-btn red" data-remove-ex="${ex.id}">Retirer</button>`:`<button class="tiny-btn green" data-add-ex="${ex.id}">Ajouter</button>`}</div></div>`}
+
+  function renderStats(){
+    const totals=state.players.reduce((a,p)=>{a.plaquages+=p.stats.plaquages;a.essais+=p.stats.essais;a.matches+=p.stats.matches;return a},{plaquages:0,essais:0,matches:0});
+    content.innerHTML=`<section class="stats-grid"><div class="stat-tile"><b>${totals.plaquages}</b>Plaquages</div><div class="stat-tile"><b>${totals.essais}</b>Essais</div></section><section class="card"><strong>Par joueur</strong><div class="list" style="margin-top:12px">${state.players.map(p=>`<div class="stat-row"><div class="row-left">${avatarHTML(p)}<div><strong>${p.name}</strong><div class="subtitle">Temps cumulé ${fmt(p.totalSeconds)} • ${p.stats.matches} match(s)</div></div></div><div class="chips"><span class="chip">Plaq ${p.stats.plaquages}</span><span class="chip">Ess ${p.stats.essais}</span></div></div>`).join('')}</div></section><section class="card"><div class="split"><strong>Historique matchs</strong><span class="badge">${state.history.length}</span></div><div class="list" style="margin-top:10px">${state.history.map(h=>`<div class="exercise-row"><div><strong>${h.name}</strong><div class="subtitle">${h.date} • ${h.score.us}-${h.score.them} • ${fmt(h.duration)}</div></div></div>`).join('')||'<div class="subtitle">Aucun match terminé.</div>'}</div></section>`;
+  }
+
+  function createPlateau(){
+    const ids=[...document.querySelectorAll('[data-roster-pick].active')].map(b=>b.dataset.rosterPick);
+    const fmtBtn=document.querySelector('.plateau-fmt.active');
+    const format=Number(fmtBtn?.dataset.fmt||5);
+    if(ids.length<format)return showToast(`Il faut au moins ${format} présents`);
+    state.currentPlateau={id:'pl'+Date.now(),name:document.getElementById('plateauName').value.trim()||'Plateau',format,rosterIds:ids,nextMatchNumber:1,matches:[]};
+    save();render();
+  }
+
+  function startNextMatch(){
+    const p=state.currentPlateau;if(!p)return;
+    const lineup=[...document.querySelectorAll('[data-starter-pick].active')].map(b=>b.dataset.starterPick);
+    if(lineup.length!==p.format)return showToast(`Choisis exactement ${p.format} joueurs`);
+    const bench=p.rosterIds.filter(id=>!lineup.includes(id));const now=Date.now();
+    state.currentMatch={id:'m'+now,number:p.nextMatchNumber,name:`Match ${p.nextMatchNumber}`,format:p.format,phase:'1re mi-temps',running:true,startedAt:now,elapsedBefore:0,lineup,bench,score:{us:0,them:0},playerTimes:Object.fromEntries(p.rosterIds.map(id=>[id,{acc:0,onField:lineup.includes(id),lastStart:lineup.includes(id)?now:null}])),matchStats:Object.fromEntries(p.rosterIds.map(id=>[id,{plaquages:0,essais:0}])),actionLog:[]};
+    state.ui.matchTab='terrain';state.ui.pendingOutId=null;save();requestWakeLock();render();showToast(`Match ${p.nextMatchNumber} démarré`);
+  }
+
+  function replacePlayer(outId,inId){
+    const m=state.currentMatch;if(!m||!m.lineup.includes(outId)||!m.bench.includes(inId))return;
+    const now=Date.now();
+    const outR=m.playerTimes[outId],inR=m.playerTimes[inId];
+    if(m.running&&outR.lastStart)outR.acc+=Math.max(0,(now-outR.lastStart)/1000);
+    outR.onField=false;outR.lastStart=null;
+    inR.onField=true;inR.lastStart=m.running?now:null;
+    const pos=m.lineup.indexOf(outId);m.lineup[pos]=inId;m.bench=m.bench.filter(x=>x!==inId);m.bench.push(outId);
+    m.actionLog.push({type:'replace',outId,inId});state.ui.pendingOutId=null;save();render();showToast(`${player(inId).name} entre`);
+  }
+
+  function addStat(pid,key){
+    const m=state.currentMatch;if(!m||!m.matchStats[pid])return;
+    m.matchStats[pid][key]=(m.matchStats[pid][key]||0)+1;
+    player(pid).stats[key]=(player(pid).stats[key]||0)+1;
+    m.actionLog.push({type:'stat',pid,key});save();render();
+  }
+  function undo(){
+    const m=state.currentMatch;if(!m)return;
+    const last=[...m.actionLog].reverse().find(x=>x.type==='stat');
+    if(!last)return showToast('Aucune stat à annuler');
+    const idx=m.actionLog.lastIndexOf(last);m.actionLog.splice(idx,1);m.matchStats[last.pid][last.key]=Math.max(0,m.matchStats[last.pid][last.key]-1);player(last.pid).stats[last.key]=Math.max(0,player(last.pid).stats[last.key]-1);save();render();showToast('Stat annulée');
+  }
+
+  function doHalfTime(){
+    const m=state.currentMatch;if(!m)return;
+    if(m.running)pauseMatch();
+    m.phase=m.phase==='1re mi-temps'?'2e mi-temps':m.phase;save();
+    openCoach('Mi-temps',true);
+  }
+
+  function endMatch(){
+    const m=state.currentMatch;if(!m)return;
+    if(!confirm(`Terminer définitivement le Match ${m.number} ?`))return;
+    const now=Date.now();if(m.running){settleRunning(now);m.running=false;}
+    const duration=m.elapsedBefore;
+    Object.entries(m.playerTimes).forEach(([pid,r])=>{if(r.acc>0){player(pid).totalSeconds+=r.acc;player(pid).stats.matches+=1;}});
+    const rec={name:`${state.currentPlateau?.name||'Plateau'} • Match ${m.number}`,matchNumber:m.number,date:new Date().toLocaleDateString('fr-FR'),score:{...m.score},duration,playerTimes:Object.fromEntries(Object.entries(m.playerTimes).map(([id,r])=>[id,r.acc])),stats:structuredClone(m.matchStats)};
+    state.history.unshift(rec);
+    if(state.currentPlateau){state.currentPlateau.matches.unshift(rec);state.currentPlateau.nextMatchNumber=m.number+1;}
+    state.currentMatch=null;state.ui.pendingOutId=null;save();releaseWakeLock();render();openCoach('Fin de match',true);
+  }
+
+  function closePlateau(){
+    if(!confirm('Terminer ce plateau ? Les matchs restent enregistrés dans les statistiques.'))return;
+    state.currentPlateau=null;state.currentMatch=null;save();render();
+  }
+
+  function openCoach(category='Mi-temps',breakMode=false){
+    const arr=coachPhrases[category]||coachPhrases['Motiver'];
+    const highlight=arr[Math.floor(Math.random()*arr.length)];
+    modal.hidden=false;
+    modalContent.innerHTML=`<div class="title-row"><div><strong>${category}</strong><div class="subtitle">Phrases courtes à dire aux enfants</div></div><button class="tiny-btn" data-close-modal>✕</button></div><div class="coach-highlight">“${highlight}”</div><div class="seg">${Object.keys(coachPhrases).map(k=>`<button class="coachcat ${k===category?'active':''}" data-coach-cat="${k}">${k}</button>`).join('')}</div><div class="coach-list">${arr.map(x=>`<div class="coach-item">${x}</div>`).join('')}</div>${breakMode&&state.currentMatch?`<button class="btn green full" style="margin-top:12px" data-action="resume-from-coach">Reprendre le match</button>`:''}${breakMode&&!state.currentMatch?`<button class="btn blue full" style="margin-top:12px" data-action="back-to-plateau">Retour au plateau</button>`:''}`;
+  }
+
+  function openLibrary(){
+    modal.hidden=false;modalContent.innerHTML=`<div class="title-row"><div><strong>Bibliothèque M10</strong><div class="subtitle">Tes ateliers + ajouts FFR</div></div><button class="tiny-btn" data-close-modal>✕</button></div><div class="list">${trainingLibrary.map(ex=>exerciseRow(ex,false)).join('')}</div>`;
+  }
+  function openExercise(id){
+    const ex=trainingLibrary.find(x=>x.id===id);if(!ex)return;
+    modal.hidden=false;modalContent.innerHTML=`<div class="title-row"><div><strong>${ex.title}</strong><div class="subtitle">${ex.category} • ${ex.duration} min • ${ex.players} joueurs</div>${ex.source?`<span class="source-tag">${ex.source}</span>`:''}</div><button class="tiny-btn" data-close-modal>✕</button></div><div class="success-note"><strong>Objectif :</strong> ${ex.goal}</div><section class="card" style="margin-top:12px"><strong>Matériel</strong>${Object.entries(ex.equipment).map(([k,v])=>`<div class="eq-row"><span>${k}</span><strong>${v}</strong></div>`).join('')}</section><section class="card"><strong>Consignes</strong><div class="coach-list" style="margin-top:9px">${ex.notes.map(n=>`<div class="coach-item">${n}</div>`).join('')}</div></section>`;
+  }
+  function openPlayer(id){
+    const p=player(id);
+    const admin=(p.qualificationNumber||p.birthDate||p.ffrClass)?`<section class="card" style="margin-top:12px"><strong>Informations FFR</strong><div class="eq-row"><span>N° licence / qualification</span><strong>${p.qualificationNumber||'—'}</strong></div><div class="eq-row"><span>Date de naissance</span><strong>${p.birthDate||'—'}</strong></div><div class="eq-row"><span>Classe d’âge FFR</span><strong>${p.ffrClass||'—'}</strong></div><div class="eq-row"><span>Licence</span><strong>${p.licenceType||'—'}</strong></div></section>`:`<div class="warning" style="margin-top:12px">Charge le fichier privé des fiches joueurs pour afficher le n° FFR et la date de naissance.</div>`;
+    modal.hidden=false;modalContent.innerHTML=`<div class="title-row"><div class="row-left">${avatarHTML(p,'big')}<div><strong style="font-size:23px">${p.name}</strong><div class="subtitle">Fiche joueur</div></div></div><button class="tiny-btn" data-close-modal>✕</button></div><div class="stats-grid"><div class="stat-tile"><b>${fmt(p.totalSeconds)}</b>Temps total joué</div><div class="stat-tile"><b>${p.stats.plaquages}</b>Plaquages total</div><div class="stat-tile"><b>${p.stats.essais}</b>Essais total</div><div class="stat-tile"><b>${p.stats.matches}</b>Matchs joués</div></div>${admin}<section class="card" style="margin-top:12px;margin-bottom:0"><label>Notes éducateur</label><textarea id="notesField" class="input">${p.notes||''}</textarea><button class="btn blue full" style="margin-top:10px" data-save-notes="${p.id}">Enregistrer</button></section>`;
+  }
+  function editRoster(){
+    const p=state.currentPlateau;modal.hidden=false;modalContent.innerHTML=`<div class="title-row"><div><strong>Présence plateau</strong><div class="subtitle">Seuls les joueurs cochés seront disponibles aux matchs suivants.</div></div><button class="tiny-btn" data-close-modal>✕</button></div><div class="player-pick-grid">${state.players.map(pl=>`<button class="pick-btn ${p.rosterIds.includes(pl.id)?'active':''}" data-edit-roster-pick="${pl.id}">${pl.name}</button>`).join('')}</div><button class="btn primary full" style="margin-top:12px" data-action="save-roster">Enregistrer</button>`;
+  }
+
+  function calcEquipment(){const out={};state.selectedTraining.forEach(id=>{const ex=trainingLibrary.find(x=>x.id===id);if(!ex)return;Object.entries(ex.equipment).forEach(([k,v])=>out[k]=(out[k]||0)+v)});return out;}
+  function loadFFRTemplate(){state.selectedTraining=['ffr-freeze','ffr-t2s','ffr-lutte4','ffr-jco'];save();render();showToast('Séance FFR chargée');}
+  function exportData(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='RCSQ-M10-sauvegarde.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500);}
+  function importPrivatePlayers(file){const fr=new FileReader();fr.onload=()=>{try{const data=JSON.parse(fr.result);if(data.kind!=='rcsq-private-player-data'||!Array.isArray(data.players))throw new Error('bad file');data.players.forEach(priv=>{const cur=state.players.find(p=>p.id===priv.id);if(!cur)return;cur.name=priv.name||cur.name;cur.photo=priv.photo||cur.photo;cur.qualificationNumber=priv.qualificationNumber||null;cur.birthDate=priv.birthDate||null;cur.ffrClass=priv.ffrClass||null;cur.licenceType=priv.licenceType||null;});save();render();showToast('11 fiches joueurs chargées');}catch{showToast('Fichier joueurs invalide')}};fr.readAsText(file);}
+  function importData(file){const fr=new FileReader();fr.onload=()=>{try{state=JSON.parse(fr.result);state=loadNormalize(state);save();render();showToast('Sauvegarde importée');}catch{showToast('Import impossible')}};fr.readAsText(file);}
+  function loadNormalize(s){localStorage.setItem(LS_KEY,JSON.stringify(s));return loadAndMigrate();}
+
+  document.body.addEventListener('click',e=>{
+    const t=e.target.closest('button,[data-route-link],label.tiny-btn');if(!t)return;
+    if(t.dataset.route)routeTo(t.dataset.route);
+    if(t.dataset.routeLink)routeTo(t.dataset.routeLink);
+    if(t.dataset.action==='open-coach')openCoach('Motiver');
+    if(t.dataset.openPlayer)openPlayer(t.dataset.openPlayer);
+    if(t.dataset.saveNotes){player(t.dataset.saveNotes).notes=document.getElementById('notesField').value;save();modal.hidden=true;showToast('Notes enregistrées');}
+    if(t.hasAttribute('data-close-modal'))modal.hidden=true;
+    if(t.dataset.coachCat)openCoach(t.dataset.coachCat,Boolean(state.currentMatch&&t.dataset.coachCat==='Mi-temps'));
+
+    if(t.classList.contains('plateau-fmt')){document.querySelectorAll('.plateau-fmt').forEach(b=>b.classList.remove('active'));t.classList.add('active');}
+    if(t.dataset.rosterPick)t.classList.toggle('active');
+    if(t.dataset.action==='create-plateau')createPlateau();
+    if(t.dataset.starterPick){const p=state.currentPlateau;const active=[...document.querySelectorAll('[data-starter-pick].active')];if(t.classList.contains('active'))t.classList.remove('active');else if(active.length<p.format)t.classList.add('active');else showToast(`Maximum ${p.format} titulaires`);}
+    if(t.dataset.action==='start-next-match')startNextMatch();
+    if(t.dataset.action==='edit-roster')editRoster();
+    if(t.dataset.editRosterPick)t.classList.toggle('active');
+    if(t.dataset.action==='save-roster'){const ids=[...document.querySelectorAll('[data-edit-roster-pick].active')].map(b=>b.dataset.editRosterPick);if(ids.length<state.currentPlateau.format)return showToast(`Il faut au moins ${state.currentPlateau.format} présents`);state.currentPlateau.rosterIds=ids;save();modal.hidden=true;render();}
+    if(t.dataset.action==='close-plateau')closePlateau();
+
+    if(t.dataset.action==='pause-match')pauseMatch();
+    if(t.dataset.action==='resume-match')resumeMatch();
+    if(t.dataset.action==='half-time')doHalfTime();
+    if(t.dataset.action==='end-match')endMatch();
+    if(t.dataset.action==='resume-from-coach'){modal.hidden=true;resumeMatch();}
+    if(t.dataset.action==='back-to-plateau'){modal.hidden=true;render();}
+    if(t.dataset.score){state.currentMatch.score[t.dataset.score]+=1;state.currentMatch.actionLog.push({type:'score',side:t.dataset.score});save();render();}
+    if(t.dataset.matchTab){state.ui.matchTab=t.dataset.matchTab;state.ui.pendingOutId=null;save();render();}
+    if(t.dataset.fieldPlayer){state.ui.pendingOutId=state.ui.pendingOutId===t.dataset.fieldPlayer?null:t.dataset.fieldPlayer;save();render();}
+    if(t.dataset.benchPlayer){if(!state.ui.pendingOutId)return showToast('Touche d’abord le joueur qui sort');replacePlayer(state.ui.pendingOutId,t.dataset.benchPlayer);}
+    if(t.dataset.action==='cancel-replace'){state.ui.pendingOutId=null;save();render();}
+    if(t.dataset.stat&&t.dataset.player)addStat(t.dataset.player,t.dataset.stat);
+    if(t.dataset.action==='undo')undo();
+
+    if(t.dataset.action==='open-library')openLibrary();
+    if(t.dataset.openEx)openExercise(t.dataset.openEx);
+    if(t.dataset.addEx){if(!state.selectedTraining.includes(t.dataset.addEx))state.selectedTraining.push(t.dataset.addEx);save();modal.hidden=true;render();showToast('Atelier ajouté');}
+    if(t.dataset.removeEx){state.selectedTraining=state.selectedTraining.filter(id=>id!==t.dataset.removeEx);save();render();}
+    if(t.dataset.action==='ffr-template')loadFFRTemplate();
+    if(t.dataset.action==='export')exportData();
+  });
+  document.body.addEventListener('change',e=>{if(e.target.id==='importInput'&&e.target.files?.[0])importData(e.target.files[0]);if(e.target.id==='playerDataInput'&&e.target.files?.[0])importPrivatePlayers(e.target.files[0]);});
+  modal.addEventListener('click',e=>{if(e.target.classList.contains('modal-backdrop'))modal.hidden=true;});
+  document.getElementById('quickCoachBtn').addEventListener('click',()=>openCoach(state.currentMatch?'Mi-temps':'Motiver'));
+
+  // Important sur iPhone : le calcul repose sur les timestamps, pas sur setInterval.
+  // L'OS peut suspendre la page pendant un appel/SMS ; au retour le temps est recalculé correctement.
+  window.addEventListener('pagehide',save);
+  document.addEventListener('visibilitychange',()=>{save();if(document.visibilityState==='visible'){render();if(state.currentMatch?.running)requestWakeLock();}});
+
+  if('serviceWorker'in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));}
+  render();
 })();

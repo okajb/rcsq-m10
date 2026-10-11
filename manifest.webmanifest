@@ -1,28 +1,12 @@
 {
-  "name": "RCSQ M10 – Carnet de coach",
+  "name": "RCSQ M10 Coach",
   "short_name": "RCSQ M10",
-  "description": "Carnet privé de l’éducateur RCSQ M10",
-  "lang": "fr",
-  "dir": "ltr",
-  "id": "./",
   "start_url": "./index.html",
-  "scope": "./",
   "display": "standalone",
-  "background_color": "#07142a",
-  "theme_color": "#0b1b3b",
-  "orientation": "portrait-primary",
+  "background_color": "#f4f7fb",
+  "theme_color": "#0b3a84",
   "icons": [
-    {
-      "src": "./icons/rcsq-icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "./icons/rcsq-icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    }
+    {"src":"assets/icon-192.png","sizes":"192x192","type":"image/png"},
+    {"src":"assets/icon-512.png","sizes":"512x512","type":"image/png"}
   ]
 }
