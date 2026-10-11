@@ -13,3 +13,10 @@ Le fichier `RCSQ-M10-DONNEES-PRIVEES-NE-PAS-METTRE-SUR-GITHUB.json` ne doit PAS 
 
 ## Fiche joueur
 Chaque fiche affiche : photo, numero FFR, date de naissance, classe d'age, temps total joue, nombre total de plaquages, nombre total d'essais, matchs joues et notes educateur.
+
+
+## Mise à jour V5.1
+- Ajout d’un bouton **Remettre les stats à zéro** dans l’onglet Statistiques.
+- La remise à zéro efface temps de jeu, plaquages, essais, historique, match/plateau de test.
+- Les photos, licences, dates de naissance, notes joueurs et entraînements sont conservés.
+- Double confirmation pour éviter une suppression accidentelle.

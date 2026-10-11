@@ -1,6 +1,6 @@
 (() => {
   const LS_KEY = 'rcsq-m10-coach-v2'; // même clé pour préserver les données existantes
-  const APP_VERSION = 5;
+  const APP_VERSION = '5.1';
   const names = Array.from({length:11},(_,i)=>`Joueur ${i+1}`);
 
   const FFR_SOURCE = 'FFR • Séance atelier n°1 • octobre 2026';
@@ -275,7 +275,7 @@
 
   function renderStats(){
     const totals=state.players.reduce((a,p)=>{a.plaquages+=p.stats.plaquages;a.essais+=p.stats.essais;a.matches+=p.stats.matches;return a},{plaquages:0,essais:0,matches:0});
-    content.innerHTML=`<section class="stats-grid"><div class="stat-tile"><b>${totals.plaquages}</b>Plaquages</div><div class="stat-tile"><b>${totals.essais}</b>Essais</div></section><section class="card"><strong>Par joueur</strong><div class="list" style="margin-top:12px">${state.players.map(p=>`<div class="stat-row"><div class="row-left">${avatarHTML(p)}<div><strong>${p.name}</strong><div class="subtitle">Temps cumulé ${fmt(p.totalSeconds)} • ${p.stats.matches} match(s)</div></div></div><div class="chips"><span class="chip">Plaq ${p.stats.plaquages}</span><span class="chip">Ess ${p.stats.essais}</span></div></div>`).join('')}</div></section><section class="card"><div class="split"><strong>Historique matchs</strong><span class="badge">${state.history.length}</span></div><div class="list" style="margin-top:10px">${state.history.map(h=>`<div class="exercise-row"><div><strong>${h.name}</strong><div class="subtitle">${h.date} • ${h.score.us}-${h.score.them} • ${fmt(h.duration)}</div></div></div>`).join('')||'<div class="subtitle">Aucun match terminé.</div>'}</div></section>`;
+    content.innerHTML=`<section class="stats-grid"><div class="stat-tile"><b>${totals.plaquages}</b>Plaquages</div><div class="stat-tile"><b>${totals.essais}</b>Essais</div></section><section class="card"><strong>Par joueur</strong><div class="list" style="margin-top:12px">${state.players.map(p=>`<div class="stat-row"><div class="row-left">${avatarHTML(p)}<div><strong>${p.name}</strong><div class="subtitle">Temps cumulé ${fmt(p.totalSeconds)} • ${p.stats.matches} match(s)</div></div></div><div class="chips"><span class="chip">Plaq ${p.stats.plaquages}</span><span class="chip">Ess ${p.stats.essais}</span></div></div>`).join('')}</div></section><section class="card"><div class="split"><strong>Historique matchs</strong><span class="badge">${state.history.length}</span></div><div class="list" style="margin-top:10px">${state.history.map(h=>`<div class="exercise-row"><div><strong>${h.name}</strong><div class="subtitle">${h.date} • ${h.score.us}-${h.score.them} • ${fmt(h.duration)}</div></div></div>`).join('')||'<div class="subtitle">Aucun match terminé.</div>'}</div></section><section class="card"><div class="split-wrap"><div><strong>Remise à zéro</strong><div class="subtitle">Efface les matchs de test, les temps de jeu, les plaquages et les essais. Les photos, licences et notes joueurs sont conservées.</div></div><button class="btn danger" data-action="reset-stats">Remettre les stats à zéro</button></div></section>`;
   }
 
   function createPlateau(){
@@ -369,6 +369,22 @@
 
   function calcEquipment(){const out={};state.selectedTraining.forEach(id=>{const ex=trainingLibrary.find(x=>x.id===id);if(!ex)return;Object.entries(ex.equipment).forEach(([k,v])=>out[k]=(out[k]||0)+v)});return out;}
   function loadFFRTemplate(){state.selectedTraining=['ffr-freeze','ffr-t2s','ffr-lutte4','ffr-jco'];save();render();showToast('Séance FFR chargée');}
+  function resetStats(){
+    if(!confirm('Remettre à zéro tous les temps de jeu, plaquages, essais et historiques de match ?\n\nLes photos, licences, dates de naissance et notes joueurs seront conservées.'))return;
+    if(!confirm('Dernière confirmation : effacer toutes les statistiques de test ?'))return;
+    state.players.forEach(p=>{
+      p.totalSeconds=0;
+      p.stats={plaquages:0,essais:0,matches:0};
+    });
+    state.history=[];
+    state.currentMatch=null;
+    state.currentPlateau=null;
+    state.ui.pendingOutId=null;
+    save();
+    releaseWakeLock();
+    render();
+    showToast('Statistiques remises à zéro');
+  }
   function exportData(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='RCSQ-M10-sauvegarde.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500);}
   function importPrivatePlayers(file){const fr=new FileReader();fr.onload=()=>{try{const data=JSON.parse(fr.result);if(data.kind!=='rcsq-private-player-data'||!Array.isArray(data.players))throw new Error('bad file');data.players.forEach(priv=>{const cur=state.players.find(p=>p.id===priv.id);if(!cur)return;cur.name=priv.name||cur.name;cur.photo=priv.photo||cur.photo;cur.qualificationNumber=priv.qualificationNumber||null;cur.birthDate=priv.birthDate||null;cur.ffrClass=priv.ffrClass||null;cur.licenceType=priv.licenceType||null;});save();render();showToast('11 fiches joueurs chargées');}catch{showToast('Fichier joueurs invalide')}};fr.readAsText(file);}
   function importData(file){const fr=new FileReader();fr.onload=()=>{try{state=JSON.parse(fr.result);state=loadNormalize(state);save();render();showToast('Sauvegarde importée');}catch{showToast('Import impossible')}};fr.readAsText(file);}
@@ -413,6 +429,7 @@
     if(t.dataset.addEx){if(!state.selectedTraining.includes(t.dataset.addEx))state.selectedTraining.push(t.dataset.addEx);save();modal.hidden=true;render();showToast('Atelier ajouté');}
     if(t.dataset.removeEx){state.selectedTraining=state.selectedTraining.filter(id=>id!==t.dataset.removeEx);save();render();}
     if(t.dataset.action==='ffr-template')loadFFRTemplate();
+    if(t.dataset.action==='reset-stats')resetStats();
     if(t.dataset.action==='export')exportData();
   });
   document.body.addEventListener('change',e=>{if(e.target.id==='importInput'&&e.target.files?.[0])importData(e.target.files[0]);if(e.target.id==='playerDataInput'&&e.target.files?.[0])importPrivatePlayers(e.target.files[0]);});
