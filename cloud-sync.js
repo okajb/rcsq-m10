@@ -11,7 +11,7 @@
   let user = null, role = null, ready = false, lastError = '', lastContactAt = 0;
   let changeCallback = () => {}, updateCallback = () => {};
   let unsubscribeAuth = null, unsubscribeMatches = null, unsubscribeInvites = null;
-  let guestExpiryTimer = null, guestMatchId = null, guestLivePollTimer = null;
+  let guestExpiryTimer = null, guestMatchId = null, guestLivePollTimer = null, guestPresenceTimer = null;
   let pendingToken = (location.hash.match(/^#invite=([a-f0-9]{48})$/) || [])[1] || null;
   const listeners = new Map();
   const matches = new Map();
@@ -19,6 +19,7 @@
   const scores = new Map();
   const liveStates = new Map();
   const invites = new Map();
+  const presenceStates = new Map();
   const configurationValid = Boolean(cfg.enabled && cfg.apiKey && cfg.projectId && cfg.authDomain && cfg.appId);
 
   const asInt = v => Number.isFinite(Number(v)) ? Math.max(0, Math.min(100000, Math.floor(Number(v)))) : 0;
@@ -36,6 +37,8 @@
   const matchRef = id => fsMod.doc(db, ...BASE, 'matches', id);
   const eventCol = id => fsMod.collection(db, ...BASE, 'matches', id, 'events');
   const liveRef = id => fsMod.doc(db, ...BASE, 'matches', id, 'live', 'state');
+  const presenceCol = id => fsMod.collection(db, ...BASE, 'matches', id, 'presence');
+  const presenceRef = (id,uid) => fsMod.doc(db, ...BASE, 'matches', id, 'presence', uid);
 
   function aggregate(match, list) {
     const result = {homeScore:asInt(match?.homeScore), awayScore:asInt(match?.awayScore), stats:cleanStats(match?.stats)};
@@ -73,10 +76,11 @@
   function clearListeners() {
     if (guestExpiryTimer) { clearTimeout(guestExpiryTimer); guestExpiryTimer = null; }
     if (guestLivePollTimer) { clearInterval(guestLivePollTimer); guestLivePollTimer = null; }
+    if (guestPresenceTimer) { clearInterval(guestPresenceTimer); guestPresenceTimer = null; }
     if (unsubscribeMatches) { unsubscribeMatches(); unsubscribeMatches = null; }
     if (unsubscribeInvites) { unsubscribeInvites(); unsubscribeInvites = null; }
     for (const off of listeners.values()) { try { off(); } catch {} }
-    listeners.clear(); matches.clear(); events.clear(); scores.clear(); liveStates.clear(); invites.clear();
+    listeners.clear(); matches.clear(); events.clear(); scores.clear(); liveStates.clear(); invites.clear(); presenceStates.clear();
   }
 
   function watchMatch(id, prefix='m') {
@@ -97,6 +101,12 @@
         else liveStates.delete(id);
         rebuild(id);
       }, fail));
+    }
+    if (prefix === 'admin' && !listeners.has(`${prefix}:presence:${id}`)) {
+      listeners.set(`${prefix}:presence:${id}`, fsMod.onSnapshot(presenceCol(id), snap => {
+        presenceStates.set(id, snap.docs.map(d=>({uid:d.id,...d.data()})));
+        notify();
+      }, err=>console.warn('RCSQ presence',err)));
     }
   }
 
@@ -141,11 +151,24 @@
       } catch (e) { console.warn('RCSQ live poll', e); }
     }, 1500);
   }
+  async function heartbeatGuestPresence(){
+    if (!ready || role !== 'guest' || !guestMatchId || !user || !navigator.onLine || document.visibilityState === 'hidden') return false;
+    try {
+      await fsMod.setDoc(presenceRef(guestMatchId,user.uid), {lastSeenAt:fsMod.serverTimestamp()}, {merge:true});
+      touch(); return true;
+    } catch(e) { console.warn('RCSQ guest presence',e); return false; }
+  }
+  function startGuestPresence(){
+    if (guestPresenceTimer) clearInterval(guestPresenceTimer);
+    heartbeatGuestPresence();
+    guestPresenceTimer=setInterval(heartbeatGuestPresence,8000);
+  }
   function observeGuest(matchId, token) {
     guestMatchId = matchId;
     watchGuestInvite(token);
     watchMatch(matchId, 'guest');
     startGuestLivePolling(matchId);
+    startGuestPresence();
   }
   function observeAdmin() {
     unsubscribeMatches = fsMod.onSnapshot(fsMod.collection(db, ...BASE, 'matches'), snap => {
@@ -179,6 +202,8 @@
       const app = appMod.initializeApp({apiKey:cfg.apiKey,authDomain:cfg.authDomain,projectId:cfg.projectId,appId:cfg.appId});
       auth = authMod.getAuth(app); db = fsMod.getFirestore(app); ready = true; touch();
       try { await authMod.setPersistence(auth, authMod.browserLocalPersistence); } catch {}
+      document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && role==='guest') heartbeatGuestPresence(); });
+      window.addEventListener('online',()=>{ if(role==='guest') heartbeatGuestPresence(); });
       unsubscribeAuth = authMod.onAuthStateChanged(auth, async u => {
         clearListeners(); user = u; role = null; guestMatchId = null; lastError='';
         if (!u) { notify(); return; }
@@ -299,8 +324,21 @@
     return {...result, live:lSnap.exists()?lSnap.data():null};
   }
 
+  function activeGuestCount(matchId){
+    const now=Date.now();
+    return (presenceStates.get(matchId)||[]).filter(x=>{
+      const ms=x?.lastSeenAt?.toMillis?.()||0;
+      return ms && now-ms < 25000;
+    }).length;
+  }
+  function guestLastSeenAt(matchId){
+    let latest=0;
+    for(const x of presenceStates.get(matchId)||[]) latest=Math.max(latest,x?.lastSeenAt?.toMillis?.()||0);
+    return latest;
+  }
+
   window.RCSQLive = {
-    start, login, logout, publish, setLiveState, createInvite, revokeInvite, record, refreshGuestState, getSummary,
+    start, login, logout, publish, setLiveState, createInvite, revokeInvite, record, refreshGuestState, getSummary, heartbeatGuestPresence, activeGuestCount, guestLastSeenAt,
     get configured(){return configurationValid;}, get ready(){return ready;}, get role(){return role;}, get email(){return user?.email||'';},
     get signedIn(){return !!user;}, get error(){return lastError;}, get lastContactAt(){return lastContactAt;}, get online(){return navigator.onLine;}, get invitePending(){return !!pendingToken;}, get guestMatchId(){return guestMatchId;},
     get matches(){return [...matches.entries()].map(([id,m])=>({id,...m,score:scores.get(id)||aggregate(m,[]),live:liveStates.get(id)||null}));},

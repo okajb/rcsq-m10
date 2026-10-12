@@ -49,3 +49,13 @@ Le fichier `cloud-config.js` contient uniquement la configuration Web publique d
 ## V6.2 — Terrain fluide
 
 Cette version améliore la fluidité du match et du mode parent sans modification Firebase supplémentaire. Voir `MISE-A-JOUR-V6.2.md`.
+
+## V6.3 — Confort terrain
+- indicateur réel **Parent connecté** grâce à un heartbeat temporaire,
+- confirmations visuelles rapides sur l'écran parent,
+- écran parent mis à jour sans rechargement complet à chaque stat,
+- résumé automatique de fin de match,
+- alerte douce si un joueur a nettement moins joué que la moyenne du plateau,
+- sauvegarde locale renforcée avec copie de secours IndexedDB.
+
+⚠️ Cette version nécessite de republier `firestore.rules` une fois pour autoriser la présence temporaire du parent. Voir `MISE-A-JOUR-V6.3.md`.

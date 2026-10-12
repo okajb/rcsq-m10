@@ -97,6 +97,16 @@ service cloud.firestore {
           allow delete: if false;
         }
 
+        match /presence/{presenceUid} {
+          allow get, list: if isMember(teamId);
+          allow create, update: if signedIn()
+            && request.auth.uid == presenceUid
+            && isGuestOf(teamId, matchId)
+            && request.resource.data.keys().hasOnly(['lastSeenAt'])
+            && request.resource.data.lastSeenAt == request.time;
+          allow delete: if false;
+        }
+
         match /events/{eventId} {
           allow get, list: if canAccessMatch(teamId, matchId);
           allow create: if canAccessMatch(teamId, matchId)
