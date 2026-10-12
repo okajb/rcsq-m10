@@ -11,7 +11,7 @@
   let user = null, role = null, ready = false, lastError = '';
   let changeCallback = () => {}, updateCallback = () => {};
   let unsubscribeAuth = null, unsubscribeMatches = null, unsubscribeInvites = null;
-  let guestExpiryTimer = null, guestMatchId = null;
+  let guestExpiryTimer = null, guestMatchId = null, guestLivePollTimer = null;
   let pendingToken = (location.hash.match(/^#invite=([a-f0-9]{48})$/) || [])[1] || null;
   const listeners = new Map();
   const matches = new Map();
@@ -71,6 +71,7 @@
 
   function clearListeners() {
     if (guestExpiryTimer) { clearTimeout(guestExpiryTimer); guestExpiryTimer = null; }
+    if (guestLivePollTimer) { clearInterval(guestLivePollTimer); guestLivePollTimer = null; }
     if (unsubscribeMatches) { unsubscribeMatches(); unsubscribeMatches = null; }
     if (unsubscribeInvites) { unsubscribeInvites(); unsubscribeInvites = null; }
     for (const off of listeners.values()) { try { off(); } catch {} }
@@ -113,10 +114,35 @@
       guestExpiryTimer = setTimeout(guestAccessStopped, remaining + 1000);
     }, guestAccessStopped));
   }
+  function sameLiveState(a,b) {
+    const aa = a || null, bb = b || null;
+    if (!aa && !bb) return true;
+    if (!aa || !bb) return false;
+    return JSON.stringify({lineup:aa.lineup||[],phase:aa.phase||'',active:aa.active,running:aa.running}) ===
+           JSON.stringify({lineup:bb.lineup||[],phase:bb.phase||'',active:bb.active,running:bb.running});
+  }
+  function startGuestLivePolling(matchId) {
+    if (guestLivePollTimer) clearInterval(guestLivePollTimer);
+    // Filet de sécurité iPhone/Safari : même si un listener temps réel tarde,
+    // on relit la composition toutes les 2 s pour que les changements du coach apparaissent.
+    guestLivePollTimer = setInterval(async () => {
+      if (role !== 'guest' || guestMatchId !== matchId || document.visibilityState === 'hidden') return;
+      try {
+        const snap = await fsMod.getDoc(liveRef(matchId));
+        const next = snap.exists() ? snap.data() : null;
+        const prev = liveStates.get(matchId) || null;
+        if (!sameLiveState(prev,next)) {
+          if (next) liveStates.set(matchId,next); else liveStates.delete(matchId);
+          rebuild(matchId);
+        }
+      } catch (e) { console.warn('RCSQ live poll', e); }
+    }, 2000);
+  }
   function observeGuest(matchId, token) {
     guestMatchId = matchId;
     watchGuestInvite(token);
     watchMatch(matchId, 'guest');
+    startGuestLivePolling(matchId);
   }
   function observeAdmin() {
     unsubscribeMatches = fsMod.onSnapshot(fsMod.collection(db, ...BASE, 'matches'), snap => {

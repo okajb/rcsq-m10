@@ -1,4 +1,4 @@
-const CACHE='rcsq-m10-v6-20261012';
+const CACHE='rcsq-m10-v6-1-parent-lineup-fix-20261012';
 const ASSETS=['./','./index.html','./styles.css','./app.js','./cloud-config.js','./cloud-sync.js','./manifest.webmanifest','./assets/rcsq-logo.png','./assets/accueil-dessin-equipe.jpg','./assets/icon-192.png','./assets/icon-512.png','./assets/apple-touch-icon.png'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});

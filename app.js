@@ -261,7 +261,7 @@
           <button class="btn danger" data-action="end-match">■ FIN MATCH</button>
         </div>
       </section>
-      <section class="card live-share-card"><div class="split-wrap"><div><strong>Parent statisticien</strong><div class="subtitle">Le parent note seulement PLAQUAGE, ESSAI et les essais adverses. Les changements restent sur ton téléphone.</div></div>${cloudBadge}</div><button class="btn white full" style="margin-top:10px" data-action="share-assistant">${shareLabel}</button></section>
+      <section class="card live-share-card"><div class="split-wrap"><div><strong>Parent statisticien</strong><div class="subtitle">Le parent note seulement PLAQUAGE, ESSAI et les essais adverses. Les changements restent sur ton téléphone et sa liste se met à jour automatiquement.</div></div>${cloudBadge}</div>${m.cloudSyncError?'<div class="danger-note" style="margin-top:10px">⚠️ Dernière synchronisation parent non confirmée. Vérifie la connexion internet puis refais le changement si besoin.</div>':''}<button class="btn white full" style="margin-top:10px" data-action="share-assistant">${shareLabel}</button></section>
       <div class="tabs"><button class="tab-btn ${tab==='terrain'?'active':''}" data-match-tab="terrain">Terrain / remplacements</button><button class="tab-btn ${tab==='stats'?'active':''}" data-match-tab="stats">Stats express</button></div>
       ${tab==='terrain'?terrainHTML(m,onField,bench,now):statsExpressHTML(m,onField,now)}
       <section class="card"><div class="split"><div><strong>Phrases coach</strong><div class="subtitle">Accès rapide pendant une pause.</div></div><button class="tiny-btn yellow" data-action="open-coach">🎤 Ouvrir</button></div></section>`;
@@ -311,11 +311,11 @@
     const lineup=[...document.querySelectorAll('[data-starter-pick].active')].map(b=>b.dataset.starterPick);
     if(lineup.length!==p.format)return showToast(`Choisis exactement ${p.format} joueurs`);
     const bench=p.rosterIds.filter(id=>!lineup.includes(id));const now=Date.now();
-    state.currentMatch={id:'m'+now,number:p.nextMatchNumber,name:`Match ${p.nextMatchNumber}`,format:p.format,phase:'1re mi-temps',running:true,startedAt:now,elapsedBefore:0,lineup,bench,score:{us:0,them:0},playerTimes:Object.fromEntries(p.rosterIds.map(id=>[id,{acc:0,onField:lineup.includes(id),lastStart:lineup.includes(id)?now:null}])),matchStats:Object.fromEntries(p.rosterIds.map(id=>[id,{plaquages:0,essais:0}])),actionLog:[],cloudShared:false,cloudInviteUrl:null};
+    state.currentMatch={id:'m'+now,number:p.nextMatchNumber,name:`Match ${p.nextMatchNumber}`,format:p.format,phase:'1re mi-temps',running:true,startedAt:now,elapsedBefore:0,lineup,bench,score:{us:0,them:0},playerTimes:Object.fromEntries(p.rosterIds.map(id=>[id,{acc:0,onField:lineup.includes(id),lastStart:lineup.includes(id)?now:null}])),matchStats:Object.fromEntries(p.rosterIds.map(id=>[id,{plaquages:0,essais:0}])),actionLog:[],cloudShared:false,cloudInviteUrl:null,cloudSyncError:false};
     state.ui.matchTab='terrain';state.ui.pendingOutId=null;save();requestWakeLock();render();showToast(`Match ${p.nextMatchNumber} démarré`);
   }
 
-  function replacePlayer(outId,inId){
+  async function replacePlayer(outId,inId){
     const m=state.currentMatch;if(!m||!m.lineup.includes(outId)||!m.bench.includes(inId))return;
     const now=Date.now();
     const outR=m.playerTimes[outId],inR=m.playerTimes[inId];
@@ -323,7 +323,9 @@
     outR.onField=false;outR.lastStart=null;
     inR.onField=true;inR.lastStart=m.running?now:null;
     const pos=m.lineup.indexOf(outId);m.lineup[pos]=inId;m.bench=m.bench.filter(x=>x!==inId);m.bench.push(outId);
-    m.actionLog.push({type:'replace',outId,inId});state.ui.pendingOutId=null;save();syncLiveState();render();showToast(`${player(inId).name} entre`);
+    m.actionLog.push({type:'replace',outId,inId});state.ui.pendingOutId=null;save();render();
+    const synced=await syncLiveState();
+    if(synced)showToast(`${player(inId).name} entre • écran parent mis à jour`);
   }
 
   async function addStat(pid,key){
@@ -404,8 +406,16 @@
 
   function inviteTokenFromUrl(url){try{return (new URL(url||'',location.href).hash.match(/^#invite=([a-f0-9]{48})$/)||[])[1]||null}catch{return null}}
   async function syncLiveState(){
-    const m=state.currentMatch;if(!m?.cloudShared||window.RCSQLive?.role!=='admin')return;
-    try{await window.RCSQLive.setLiveState(m.id,{lineup:m.lineup,phase:m.phase,active:true,running:m.running});}catch(e){console.warn(e);}
+    const m=state.currentMatch;if(!m?.cloudShared||window.RCSQLive?.role!=='admin')return true;
+    try{
+      await window.RCSQLive.setLiveState(m.id,{lineup:[...m.lineup],phase:m.phase,active:true,running:m.running});
+      m.cloudSyncError=false;save();
+      return true;
+    }catch(e){
+      m.cloudSyncError=true;save();console.warn('Synchronisation parent impossible',e);
+      showToast('⚠️ Changement fait, mais synchro parent à vérifier');
+      return false;
+    }
   }
   function onCloudChange(){
     if(pendingShareAfterLogin && window.RCSQLive?.role==='admin'){pendingShareAfterLogin=false;modal.hidden=true;openShareAssistant();return;}
