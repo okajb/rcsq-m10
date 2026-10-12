@@ -1,6 +1,6 @@
 (() => {
   const LS_KEY = 'rcsq-m10-coach-v2'; // même clé pour préserver les données existantes
-  const APP_VERSION = '6.0';
+  const APP_VERSION = '6.2';
   const names = Array.from({length:11},(_,i)=>`Joueur ${i+1}`);
 
   const FFR_SOURCE = 'FFR • Séance atelier n°1 • octobre 2026';
@@ -160,7 +160,22 @@
 
   async function requestWakeLock(){ try{if('wakeLock'in navigator)wakeLock=await navigator.wakeLock.request('screen');}catch{} }
   async function releaseWakeLock(){ try{if(wakeLock){await wakeLock.release();wakeLock=null;}}catch{} }
-  function ensureTick(){ clearInterval(tickTimer);if(state.currentMatch?.running){tickTimer=setInterval(()=>{if(state.route==='match')render();},1000);} }
+  function updateLiveTimes(){
+    const m=state.currentMatch;if(!m)return;
+    const now=Date.now();
+    const clock=document.querySelector('[data-live-match-clock]');
+    if(clock)clock.textContent=fmt(matchElapsed(now));
+    document.querySelectorAll('[data-player-time]').forEach(el=>{
+      const pid=el.dataset.playerTime;if(pid)el.textContent=fmt(playerMatchTime(pid,now));
+    });
+  }
+  function ensureTick(){
+    clearInterval(tickTimer);
+    if(state.currentMatch?.running && !isAssistantMode()){
+      updateLiveTimes();
+      tickTimer=setInterval(updateLiveTimes,1000);
+    }
+  }
 
   function isAssistantMode(){ return Boolean(window.RCSQLive && (window.RCSQLive.invitePending || String(window.RCSQLive.role||'').startsWith('guest'))); }
   function render(){
@@ -247,12 +262,13 @@
     const tab=state.ui.matchTab||'terrain';
     const cloudRole=window.RCSQLive?.role;
     const shareLabel=m.cloudInviteUrl?'📲 Afficher le QR parent':'📲 Partager stats avec un parent';
-    const cloudBadge=m.cloudShared?'<span class="badge green">● Direct activé</span>':(cloudRole==='admin'?'<span class="badge">Coach connecté</span>':'<span class="badge yellow">Direct non connecté</span>');
+    const cloudOnline=navigator.onLine;
+    const cloudBadge=m.cloudShared?(cloudOnline?'<span class="badge green">● Direct synchronisé</span>':'<span class="badge red">● Hors connexion</span>'):(cloudRole==='admin'?'<span class="badge">Coach connecté</span>':'<span class="badge yellow">Direct non connecté</span>');
     content.innerHTML=`
       <section class="score-card">
         <div class="score-top">
           <div><div class="badge">RCSQ</div><div class="score-num">${m.score.us}</div><div class="subtitle">essais saisis</div></div>
-          <div><div class="phase">Match ${m.number} • ${m.phase}</div><div class="match-clock">${fmt(matchElapsed(now))}</div></div>
+          <div><div class="phase">Match ${m.number} • ${m.phase}</div><div class="match-clock" data-live-match-clock>${fmt(matchElapsed(now))}</div></div>
           <div><div class="badge red">ADVERSAIRE</div><div class="score-num" style="color:var(--red)">${m.score.them}</div><button class="tiny-btn red" data-score="them">+1 essai</button></div>
         </div>
         <div class="match-controls">
@@ -261,7 +277,7 @@
           <button class="btn danger" data-action="end-match">■ FIN MATCH</button>
         </div>
       </section>
-      <section class="card live-share-card"><div class="split-wrap"><div><strong>Parent statisticien</strong><div class="subtitle">Le parent note seulement PLAQUAGE, ESSAI et les essais adverses. Les changements restent sur ton téléphone et sa liste se met à jour automatiquement.</div></div>${cloudBadge}</div>${m.cloudSyncError?'<div class="danger-note" style="margin-top:10px">⚠️ Dernière synchronisation parent non confirmée. Vérifie la connexion internet puis refais le changement si besoin.</div>':''}<button class="btn white full" style="margin-top:10px" data-action="share-assistant">${shareLabel}</button></section>
+      <section class="card live-share-card"><div class="split-wrap"><div><strong>Parent statisticien</strong><div class="subtitle">Le parent note seulement PLAQUAGE, ESSAI et les essais adverses. Tu gardes les changements : son écran suit automatiquement en direct.</div></div>${cloudBadge}</div>${m.cloudSyncError?'<div class="danger-note" style="margin-top:10px">⚠️ Dernière synchronisation parent non confirmée. Vérifie la connexion internet puis refais le changement si besoin.</div>':''}<button class="btn white full" style="margin-top:10px" data-action="share-assistant">${shareLabel}</button></section>
       <div class="tabs"><button class="tab-btn ${tab==='terrain'?'active':''}" data-match-tab="terrain">Terrain / remplacements</button><button class="tab-btn ${tab==='stats'?'active':''}" data-match-tab="stats">Stats express</button></div>
       ${tab==='terrain'?terrainHTML(m,onField,bench,now):statsExpressHTML(m,onField,now)}
       <section class="card"><div class="split"><div><strong>Phrases coach</strong><div class="subtitle">Accès rapide pendant une pause.</div></div><button class="tiny-btn yellow" data-action="open-coach">🎤 Ouvrir</button></div></section>`;
@@ -272,15 +288,15 @@
     return `<section class="card" style="padding:10px">
       <div class="pitch">
         <div class="field-title">RCSQ • ${onField.length} joueurs sur le terrain</div>
-        <div class="field-grid">${onField.map((p,i)=>`<button class="field-player pos-${m.format}-${i} ${pending===p.id?'selected-out':''}" data-field-player="${p.id}">${avatarHTML(p)}<div class="fname">${p.name}</div><div class="ftime">${fmt(playerMatchTime(p.id,now))}</div></button>`).join('')}</div>
+        <div class="field-grid">${onField.map((p,i)=>`<button class="field-player pos-${m.format}-${i} ${pending===p.id?'selected-out':''}" data-field-player="${p.id}">${avatarHTML(p)}<div class="fname">${p.name}</div><div class="ftime" data-player-time="${p.id}">${fmt(playerMatchTime(p.id,now))}</div></button>`).join('')}</div>
         <div class="replacement-help">${pending?`✅ ${player(pending).name} sort : touche maintenant le remplaçant qui entre.`:'🔁 Pour changer : touche d’abord un joueur sur le terrain, puis un remplaçant.'}</div>
       </div>
-      <div class="bench-section"><div class="split"><strong>Remplaçants (${bench.length})</strong>${pending?`<button class="tiny-btn red" data-action="cancel-replace">Annuler</button>`:''}</div><div class="bench-scroll" style="margin-top:9px">${bench.map(p=>`<button class="bench-player ${pending?'ready-in':''}" data-bench-player="${p.id}">${avatarHTML(p)}<div class="bname">${p.name}</div><div class="btime">${fmt(playerMatchTime(p.id,now))}</div></button>`).join('')||'<span class="subtitle">Aucun remplaçant</span>'}</div></div>
+      <div class="bench-section"><div class="split"><strong>Remplaçants (${bench.length})</strong>${pending?`<button class="tiny-btn red" data-action="cancel-replace">Annuler</button>`:''}</div><div class="bench-scroll" style="margin-top:9px">${bench.map(p=>`<button class="bench-player ${pending?'ready-in':''}" data-bench-player="${p.id}">${avatarHTML(p)}<div class="bname">${p.name}</div><div class="btime" data-player-time="${p.id}">${fmt(playerMatchTime(p.id,now))}</div></button>`).join('')||'<span class="subtitle">Aucun remplaçant</span>'}</div>${m.actionLog.some(a=>a.type==='replace')?`<button class="tiny-btn replacement-undo" data-action="undo-replacement">↶ Annuler le dernier changement</button>`:''}</div>
     </section>`;
   }
 
   function statsExpressHTML(m,onField,now){
-    return `<section>${onField.map(p=>`<article class="stats-player-card"><div class="stats-player-head"><div class="row-left">${avatarHTML(p)}<div><strong>${p.name}</strong><div class="subtitle">Temps ${fmt(playerMatchTime(p.id,now))}</div></div></div><span class="badge">sur le terrain</span></div><div class="two-actions"><button class="action-btn tackle" data-stat="plaquages" data-player="${p.id}">PLAQUAGE +1<small>${m.matchStats[p.id]?.plaquages||0}</small></button><button class="action-btn try" data-stat="essais" data-player="${p.id}">ESSAI +1<small>${m.matchStats[p.id]?.essais||0}</small></button></div></article>`).join('')}</section><section class="card"><div class="split"><span class="subtitle">Erreur de saisie ?</span><button class="tiny-btn red" data-action="undo">Annuler dernière stat</button></div></section>`;
+    return `<section>${onField.map(p=>`<article class="stats-player-card"><div class="stats-player-head"><div class="row-left">${avatarHTML(p)}<div><strong>${p.name}</strong><div class="subtitle">Temps <span data-player-time="${p.id}">${fmt(playerMatchTime(p.id,now))}</span></div></div></div><span class="badge">sur le terrain</span></div><div class="two-actions"><button class="action-btn tackle" data-stat="plaquages" data-player="${p.id}">PLAQUAGE +1<small>${m.matchStats[p.id]?.plaquages||0}</small></button><button class="action-btn try" data-stat="essais" data-player="${p.id}">ESSAI +1<small>${m.matchStats[p.id]?.essais||0}</small></button></div></article>`).join('')}</section><section class="card"><div class="split"><span class="subtitle">Erreur de saisie ?</span><button class="tiny-btn red" data-action="undo">Annuler dernière stat</button></div></section>`;
   }
 
   function renderTraining(){
@@ -315,7 +331,7 @@
     state.ui.matchTab='terrain';state.ui.pendingOutId=null;save();requestWakeLock();render();showToast(`Match ${p.nextMatchNumber} démarré`);
   }
 
-  async function replacePlayer(outId,inId){
+  async function replacePlayer(outId,inId,logAction=true){
     const m=state.currentMatch;if(!m||!m.lineup.includes(outId)||!m.bench.includes(inId))return;
     const now=Date.now();
     const outR=m.playerTimes[outId],inR=m.playerTimes[inId];
@@ -323,9 +339,20 @@
     outR.onField=false;outR.lastStart=null;
     inR.onField=true;inR.lastStart=m.running?now:null;
     const pos=m.lineup.indexOf(outId);m.lineup[pos]=inId;m.bench=m.bench.filter(x=>x!==inId);m.bench.push(outId);
-    m.actionLog.push({type:'replace',outId,inId});state.ui.pendingOutId=null;save();render();
+    if(logAction)m.actionLog.push({type:'replace',outId,inId});state.ui.pendingOutId=null;save();render();navigator.vibrate?.([20,30,20]);
     const synced=await syncLiveState();
     if(synced)showToast(`${player(inId).name} entre • écran parent mis à jour`);
+  }
+
+  async function undoLastReplacement(){
+    const m=state.currentMatch;if(!m)return;
+    let idx=-1;for(let i=m.actionLog.length-1;i>=0;i--){if(m.actionLog[i]?.type==='replace'){idx=i;break;}}
+    if(idx<0)return showToast('Aucun changement à annuler');
+    const last=m.actionLog[idx];
+    if(!m.lineup.includes(last.inId)||!m.bench.includes(last.outId))return showToast('Ce changement ne peut plus être annulé');
+    m.actionLog.splice(idx,1);save();
+    await replacePlayer(last.inId,last.outId,false);
+    showToast(`Changement annulé • ${player(last.outId).name} revient`);
   }
 
   async function addStat(pid,key){
@@ -417,9 +444,16 @@
       return false;
     }
   }
+  let cloudRenderRAF=0;
   function onCloudChange(){
     if(pendingShareAfterLogin && window.RCSQLive?.role==='admin'){pendingShareAfterLogin=false;modal.hidden=true;openShareAssistant();return;}
-    render();
+    if(cloudRenderRAF)return;
+    cloudRenderRAF=requestAnimationFrame(()=>{
+      cloudRenderRAF=0;
+      const y=isAssistantMode()?window.scrollY:null;
+      render();
+      if(y!==null)requestAnimationFrame(()=>window.scrollTo(0,y));
+    });
   }
   function applyCloudAggregate(matchId,result){
     const m=state.currentMatch;if(!m||m.id!==matchId)return;
@@ -472,6 +506,12 @@
   async function copyInviteLink(url){try{await navigator.clipboard.writeText(url);showToast('Lien copié');}catch{showToast('Copie impossible');}}
   async function shareInviteLink(url){try{if(navigator.share)await navigator.share({title:'RCSQ M10 — stats parent',text:'Scanne/ouvre ce lien pour noter les stats du match.',url});else await copyInviteLink(url);}catch{}}
 
+  function assistantSyncLabel(live){
+    if(!navigator.onLine)return {text:'● HORS LIGNE',cls:'offline'};
+    const age=Date.now()-Number(live?.lastContactAt||0);
+    if(age<5000)return {text:'● SYNCHRO OK',cls:'ok'};
+    return {text:'◌ RECONNEXION…',cls:'wait'};
+  }
   function renderAssistant(){
     const live=window.RCSQLive;
     if(!live){content.innerHTML='<section class="card">Mode parent indisponible.</section>';return;}
@@ -479,14 +519,32 @@
     if(live.error && live.role!=='guest'){content.innerHTML=`<div class="assistant-head"><img src="assets/rcsq-logo.png" alt="RCSQ"><div><strong>RCSQ M10</strong><span>Mode parent</span></div></div><section class="card"><div class="danger-note">${live.error}</div></section>`;return;}
     const id=live.guestMatchId,m=live.matches.find(x=>x.id===id);
     if(!m){content.innerHTML=`<div class="assistant-head"><img src="assets/rcsq-logo.png" alt="RCSQ"><div><strong>RCSQ M10</strong><span>Mode parent</span></div></div><section class="card center"><strong>Chargement du match…</strong></section>`;return;}
-    const lineup=m.live?.lineup||[];const map=new Map((m.roster||[]).map(p=>[p.id,p]));const active=lineup.map(id=>map.get(id)).filter(Boolean);const enabled=m.live?.active!==false;
-    content.innerHTML=`<div class="assistant-head"><img src="assets/rcsq-logo.png" alt="RCSQ"><div><strong>RCSQ M10 — STATISTIQUES</strong><span>${m.title||'Match'} • ${m.live?.phase||'En direct'}</span></div></div><section class="assistant-score"><div><span>RCSQ</span><b>${m.score.homeScore}</b></div><div class="live-dot">${enabled?'● EN DIRECT':'■ TERMINÉ'}</div><div><span>ADVERSAIRE</span><b>${m.score.awayScore}</b></div></section><div class="assistant-rule">Tu notes seulement les stats. <strong>Les changements sont gérés par le coach.</strong></div><section class="assistant-pitch"><div class="assistant-field-title">Joueurs actuellement sur le terrain</div><div class="assistant-grid">${active.map(p=>{const st=m.score.stats?.[p.id]||{};return `<article class="assistant-player"><div class="assistant-ident"><div class="assistant-avatar">${String(p.firstName||'?').slice(0,1)}</div><strong>${p.firstName}</strong></div><div class="assistant-two"><button ${enabled?'':'disabled'} data-assistant-stat="tackle" data-player="${p.id}" class="assistant-stat tackle">PLAQUAGE +1<span>${st.tackle||0}</span></button><button ${enabled?'':'disabled'} data-assistant-stat="try" data-player="${p.id}" class="assistant-stat try">ESSAI +1<span>${st.try||0}</span></button></div></article>`}).join('')||'<div class="warning">La composition terrain va apparaître dès que le coach active le direct.</div>'}</div></section><section class="card"><button class="assistant-away" ${enabled?'':'disabled'} data-action="assistant-away-try">ESSAI ÉQUIPE ADVERSE +1 <span>${m.score.awayScore}</span></button><button class="btn ghost full" style="margin-top:10px" data-action="assistant-undo">↶ Annuler ma dernière saisie</button></section>`;
+    const lineup=m.live?.lineup||[];
+    const map=new Map((m.roster||[]).map(p=>[p.id,p]));
+    const active=lineup.map(id=>map.get(id)).filter(Boolean);
+    const sync=assistantSyncLabel(live);
+    const enabled=m.live?.active!==false && navigator.onLine;
+    content.innerHTML=`
+      <div class="assistant-head"><img src="assets/rcsq-logo.png" alt="RCSQ"><div><strong>RCSQ M10 — STATISTIQUES</strong><span>${m.title||'Match'} • ${m.live?.phase||'En direct'}</span></div><div class="assistant-sync ${sync.cls}">${sync.text}</div></div>
+      <section class="assistant-score"><div><span>RCSQ</span><b>${m.score.homeScore}</b></div><div class="live-dot">${m.live?.active===false?'■ TERMINÉ':'● MATCH EN COURS'}</div><div><span>ADVERSAIRE</span><b>${m.score.awayScore}</b></div></section>
+      ${!navigator.onLine?'<div class="assistant-offline">Connexion perdue : les boutons sont bloqués pour éviter de perdre une stat. Ils se réactivent automatiquement au retour du réseau.</div>':''}
+      <div class="assistant-rule">Tu notes uniquement <strong>PLAQUAGES + ESSAIS</strong>. Le coach gère les changements : les joueurs affichés ici se mettent à jour tout seuls.</div>
+      <section class="assistant-pitch"><div class="assistant-field-title">Joueurs actuellement sur le terrain</div><div class="assistant-grid">${active.map(p=>{const st=m.score.stats?.[p.id]||{};return `<article class="assistant-player" data-assistant-card="${p.id}"><div class="assistant-ident"><div class="assistant-avatar">${String(p.firstName||'?').slice(0,1)}</div><strong>${p.firstName}</strong></div><div class="assistant-two"><button ${enabled?'':'disabled'} data-assistant-stat="tackle" data-player="${p.id}" class="assistant-stat tackle">PLAQUAGE +1<span>${st.tackle||0}</span></button><button ${enabled?'':'disabled'} data-assistant-stat="try" data-player="${p.id}" class="assistant-stat try">ESSAI +1<span>${st.try||0}</span></button></div></article>`}).join('')||'<div class="warning">La composition terrain va apparaître dès que le coach active le direct.</div>'}</div></section>
+      <section class="assistant-bottom"><button class="assistant-away" ${enabled?'':'disabled'} data-action="assistant-away-try">ESSAI ÉQUIPE ADVERSE +1 <span>${m.score.awayScore}</span></button><button class="assistant-undo" ${assistantActionLog.length?'':'disabled'} data-action="assistant-undo">↶ Annuler ma dernière saisie</button></section>`;
   }
-  async function assistantRecordStat(pid,stat){
-    const live=window.RCSQLive,id=live?.guestMatchId;if(!id)return;
-    try{await live.record(id,{kind:'stat',stat,playerId:pid,delta:1});assistantActionLog.push({kind:'stat',stat,playerId:pid});navigator.vibrate?.(25);showToast(stat==='try'?'Essai ajouté':'Plaquage ajouté');}catch(e){showToast(e.message||'Saisie impossible');}
+  function lockAssistantButton(btn){
+    if(!btn||btn.dataset.busy==='1')return false;
+    btn.dataset.busy='1';btn.classList.add('tap-pulse');
+    navigator.vibrate?.(20);
+    setTimeout(()=>{btn.dataset.busy='0';btn.classList.remove('tap-pulse');},550);
+    return true;
   }
-  async function assistantAwayTry(){const live=window.RCSQLive,id=live?.guestMatchId;if(!id)return;try{await live.record(id,{kind:'score',side:'away',delta:1});assistantActionLog.push({kind:'score',side:'away'});navigator.vibrate?.(25);showToast('Essai adverse ajouté');}catch(e){showToast(e.message||'Saisie impossible');}}
+
+  async function assistantRecordStat(pid,stat,btn){
+    const live=window.RCSQLive,id=live?.guestMatchId;if(!id||!lockAssistantButton(btn))return;
+    try{await live.record(id,{kind:'stat',stat,playerId:pid,delta:1});assistantActionLog.push({kind:'stat',stat,playerId:pid});showToast(stat==='try'?'✓ Essai ajouté':'✓ Plaquage ajouté');}catch(e){showToast(e.message||'Saisie impossible');}
+  }
+  async function assistantAwayTry(btn){const live=window.RCSQLive,id=live?.guestMatchId;if(!id||!lockAssistantButton(btn))return;try{await live.record(id,{kind:'score',side:'away',delta:1});assistantActionLog.push({kind:'score',side:'away'});showToast('✓ Essai adverse ajouté');}catch(e){showToast(e.message||'Saisie impossible');}}
   async function assistantUndo(){const a=assistantActionLog.pop();if(!a)return showToast('Rien à annuler');try{await window.RCSQLive.record(window.RCSQLive.guestMatchId,{...a,delta:-1});showToast('Dernière saisie annulée');}catch(e){assistantActionLog.push(a);showToast(e.message||'Annulation impossible');}}
 
   function calcEquipment(){const out={};state.selectedTraining.forEach(id=>{const ex=trainingLibrary.find(x=>x.id===id);if(!ex)return;Object.entries(ex.equipment).forEach(([k,v])=>out[k]=(out[k]||0)+v)});return out;}
@@ -540,9 +598,10 @@
     if(t.dataset.action==='back-to-plateau'){modal.hidden=true;render();}
     if(t.dataset.score)coachScore(t.dataset.score);
     if(t.dataset.matchTab){state.ui.matchTab=t.dataset.matchTab;state.ui.pendingOutId=null;save();render();}
-    if(t.dataset.fieldPlayer){state.ui.pendingOutId=state.ui.pendingOutId===t.dataset.fieldPlayer?null:t.dataset.fieldPlayer;save();render();}
+    if(t.dataset.fieldPlayer){state.ui.pendingOutId=state.ui.pendingOutId===t.dataset.fieldPlayer?null:t.dataset.fieldPlayer;save();navigator.vibrate?.(15);render();if(state.ui.pendingOutId)setTimeout(()=>document.querySelector('.bench-section')?.scrollIntoView({behavior:'smooth',block:'nearest'}),60);}
     if(t.dataset.benchPlayer){if(!state.ui.pendingOutId)return showToast('Touche d’abord le joueur qui sort');replacePlayer(state.ui.pendingOutId,t.dataset.benchPlayer);}
     if(t.dataset.action==='cancel-replace'){state.ui.pendingOutId=null;save();render();}
+    if(t.dataset.action==='undo-replacement')undoLastReplacement();
     if(t.dataset.stat&&t.dataset.player)addStat(t.dataset.player,t.dataset.stat);
     if(t.dataset.action==='undo')undo();
     if(t.dataset.action==='share-assistant')openShareAssistant();
@@ -550,8 +609,8 @@
     if(t.dataset.action==='cloud-logout')window.RCSQLive?.logout();
     if(t.dataset.action==='copy-invite')copyInviteLink(t.dataset.url);
     if(t.dataset.action==='native-share-invite')shareInviteLink(t.dataset.url);
-    if(t.dataset.assistantStat&&t.dataset.player)assistantRecordStat(t.dataset.player,t.dataset.assistantStat);
-    if(t.dataset.action==='assistant-away-try')assistantAwayTry();
+    if(t.dataset.assistantStat&&t.dataset.player)assistantRecordStat(t.dataset.player,t.dataset.assistantStat,t);
+    if(t.dataset.action==='assistant-away-try')assistantAwayTry(t);
     if(t.dataset.action==='assistant-undo')assistantUndo();
 
     if(t.dataset.action==='open-library')openLibrary();
@@ -569,7 +628,16 @@
   // Important sur iPhone : le calcul repose sur les timestamps, pas sur setInterval.
   // L'OS peut suspendre la page pendant un appel/SMS ; au retour le temps est recalculé correctement.
   window.addEventListener('pagehide',save);
-  document.addEventListener('visibilitychange',()=>{save();if(document.visibilityState==='visible'){render();if(state.currentMatch?.running)requestWakeLock();}});
+  document.addEventListener('visibilitychange',()=>{
+    save();
+    if(document.visibilityState==='visible'){
+      if(isAssistantMode())window.RCSQLive?.refreshGuestState?.();
+      render();
+      if(state.currentMatch?.running)requestWakeLock();
+    }
+  });
+  window.addEventListener('online',()=>{if(isAssistantMode())window.RCSQLive?.refreshGuestState?.();render();showToast('Connexion rétablie');});
+  window.addEventListener('offline',()=>{render();showToast('Connexion internet perdue');});
 
   if('serviceWorker'in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));}
   render();

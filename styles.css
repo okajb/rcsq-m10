@@ -42,3 +42,33 @@ button{touch-action:manipulation}
 .assistant-score{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;background:#fff;border-radius:20px;box-shadow:var(--shadow);padding:13px;margin-bottom:10px;text-align:center}.assistant-score span{display:block;font-size:11px;font-weight:900;color:var(--muted)}.assistant-score b{display:block;font-size:38px;line-height:1;color:var(--navy);margin-top:3px}.assistant-score>div:last-child b{color:var(--red)}.live-dot{font-size:10px;font-weight:950;color:var(--green);white-space:nowrap}.assistant-rule{padding:11px 12px;border-radius:15px;background:#fff5c9;color:#5f4b00;font-size:12px;line-height:1.3;margin-bottom:10px;text-align:center}
 .assistant-pitch{position:relative;background:linear-gradient(180deg,#3db355,#218b38);border:6px solid #dbf1d8;border-radius:22px;padding:13px 10px 14px;box-shadow:inset 0 0 0 2px rgba(255,255,255,.3),var(--shadow);overflow:hidden;margin-bottom:12px}.assistant-pitch:before{content:"";position:absolute;inset:16px;border:2px solid rgba(255,255,255,.46);border-radius:10px;pointer-events:none}.assistant-pitch:after{content:"";position:absolute;left:18px;right:18px;top:50%;height:2px;background:rgba(255,255,255,.42);pointer-events:none}.assistant-field-title{position:relative;z-index:2;color:#fff;text-align:center;font-weight:950;font-size:13px;margin:2px 0 10px;text-shadow:0 1px 2px rgba(0,0,0,.2)}.assistant-grid{position:relative;z-index:2;display:grid;grid-template-columns:1fr 1fr;gap:9px}.assistant-player{background:#fff;border-radius:16px;padding:8px;box-shadow:0 6px 15px rgba(0,0,0,.16)}.assistant-ident{display:flex;align-items:center;gap:7px;margin-bottom:7px;color:var(--navy)}.assistant-ident strong{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.assistant-avatar{width:34px;height:34px;border-radius:10px;background:linear-gradient(180deg,#ffd74d,#f2b91f);display:grid;place-items:center;font-weight:950;color:#4d3b00;flex:0 0 auto}.assistant-two{display:grid;grid-template-columns:1fr 1fr;gap:5px}.assistant-stat{border:0;border-radius:11px;color:#fff;min-height:59px;font-size:10px;line-height:1.05;font-weight:950;padding:6px 3px;touch-action:manipulation}.assistant-stat span{display:block;font-size:20px;margin-top:5px}.assistant-stat.tackle{background:linear-gradient(180deg,#ef5661,#cf2837)}.assistant-stat.try{background:linear-gradient(180deg,#36bd71,#148e4a)}.assistant-stat:disabled,.assistant-away:disabled{opacity:.48;filter:grayscale(.25)}.assistant-away{width:100%;border:0;border-radius:17px;background:linear-gradient(180deg,#f05a65,#d32434);color:#fff;font-weight:950;font-size:16px;padding:15px 9px;box-shadow:0 7px 16px rgba(211,36,52,.18)}.assistant-away span{display:inline-grid;place-items:center;min-width:31px;height:31px;margin-left:8px;border-radius:50%;background:#fff;color:#d32434}
 @media(max-width:370px){.assistant-grid{grid-template-columns:1fr}.assistant-player{display:grid;grid-template-columns:1fr 1.4fr;align-items:center;gap:7px}.assistant-ident{margin-bottom:0}}
+
+/* V6.2 — fluidité terrain */
+.field-player,.bench-player,.assistant-stat,.assistant-away,.assistant-undo{-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none}
+.field-player{transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}
+.field-player:active,.bench-player:active{transform:scale(.97)}
+.field-player.selected-out{border-color:var(--yellow);box-shadow:0 0 0 4px rgba(245,201,21,.24),0 8px 18px rgba(0,0,0,.22);transform:scale(1.04)}
+.bench-player.ready-in{animation:benchReady 1.15s ease-in-out infinite alternate}
+@keyframes benchReady{from{box-shadow:0 5px 13px rgba(0,0,0,.12)}to{box-shadow:0 0 0 4px rgba(245,201,21,.28),0 8px 18px rgba(0,0,0,.18)}}
+.replacement-help{font-size:13px;line-height:1.25;padding:11px 12px}
+.replacement-undo{display:block;margin:8px auto 0;background:#f2f5fa;color:#53657d}
+
+.assistant-head{justify-content:flex-start}
+.assistant-head>div:nth-child(2){min-width:0;flex:1}
+.assistant-sync{font-size:9px;font-weight:950;padding:6px 7px;border-radius:999px;white-space:nowrap;align-self:center}
+.assistant-sync.ok{background:rgba(50,205,106,.2);color:#bdf8d1}
+.assistant-sync.wait{background:rgba(255,205,55,.2);color:#ffe79a}
+.assistant-sync.offline{background:rgba(255,90,100,.24);color:#ffd4d8}
+.assistant-offline{margin-bottom:10px;padding:11px 12px;border-radius:14px;background:#ffe9ec;color:#a91d2b;font-size:12px;font-weight:850;line-height:1.3}
+.assistant-player{transition:transform .15s ease,box-shadow .15s ease}
+.assistant-ident strong{font-size:19px}
+.assistant-stat{min-height:72px;font-size:11px;transition:transform .08s ease,filter .08s ease,box-shadow .08s ease}
+.assistant-stat span{font-size:23px}
+.assistant-stat:active,.assistant-away:active,.assistant-undo:active,.tap-pulse{transform:scale(.96);filter:brightness(1.08)}
+.assistant-bottom{position:sticky;bottom:0;z-index:15;margin:0 -12px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:rgba(244,247,251,.96);backdrop-filter:blur(12px);border-top:1px solid #dfe7f2;box-shadow:0 -7px 18px rgba(6,40,90,.08)}
+.assistant-undo{width:100%;border:0;border-radius:14px;background:#fff;color:#234467;font-weight:900;padding:12px;margin-top:8px;box-shadow:0 5px 14px rgba(7,40,90,.08)}
+.assistant-undo:disabled{opacity:.4}
+.assistant-away{min-height:62px}
+
+/* L'écran coach ne bouge plus à chaque seconde : seuls les chiffres de temps sont mis à jour. */
+.match-clock,[data-player-time]{font-variant-numeric:tabular-nums}

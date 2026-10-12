@@ -44,3 +44,8 @@ Le fichier `cloud-config.js` contient uniquement la configuration Web publique d
 - L'écran parent garde le listener temps réel et ajoute un filet de sécurité : vérification de la composition toutes les 2 secondes quand l'écran parent est visible.
 - Le parent voit donc automatiquement le joueur entrant et ne peut plus saisir de stat sur le joueur sorti.
 - Aucun changement de règles Firestore n'est nécessaire par rapport à la V6.
+
+
+## V6.2 — Terrain fluide
+
+Cette version améliore la fluidité du match et du mode parent sans modification Firebase supplémentaire. Voir `MISE-A-JOUR-V6.2.md`.

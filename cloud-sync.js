@@ -8,7 +8,7 @@
   const TEAM = 'rcsq-m10';
   const BASE = ['teams', TEAM];
   let appMod, authMod, fsMod, auth, db;
-  let user = null, role = null, ready = false, lastError = '';
+  let user = null, role = null, ready = false, lastError = '', lastContactAt = 0;
   let changeCallback = () => {}, updateCallback = () => {};
   let unsubscribeAuth = null, unsubscribeMatches = null, unsubscribeInvites = null;
   let guestExpiryTimer = null, guestMatchId = null, guestLivePollTimer = null;
@@ -30,6 +30,7 @@
     }
     return out;
   };
+  const touch = () => { lastContactAt = Date.now(); };
   const notify = () => { try { changeCallback(); } catch (e) { console.warn(e); } };
   const fail = err => { lastError = (err && err.message) || String(err); notify(); };
   const matchRef = id => fsMod.doc(db, ...BASE, 'matches', id);
@@ -82,17 +83,17 @@
     if (!listeners.has(`${prefix}:match:${id}`)) {
       listeners.set(`${prefix}:match:${id}`, fsMod.onSnapshot(matchRef(id), snap => {
         if (!snap.exists()) return fail(Error('Match en direct introuvable.'));
-        matches.set(id, snap.data()); rebuild(id);
+        touch(); matches.set(id, snap.data()); rebuild(id);
       }, fail));
     }
     if (!listeners.has(`${prefix}:events:${id}`)) {
       listeners.set(`${prefix}:events:${id}`, fsMod.onSnapshot(eventCol(id), snap => {
-        events.set(id, snap.docs.map(d => d.data())); rebuild(id);
+        touch(); events.set(id, snap.docs.map(d => d.data())); rebuild(id);
       }, fail));
     }
     if (!listeners.has(`${prefix}:live:${id}`)) {
       listeners.set(`${prefix}:live:${id}`, fsMod.onSnapshot(liveRef(id), snap => {
-        if (snap.exists()) liveStates.set(id, snap.data());
+        touch(); if (snap.exists()) liveStates.set(id, snap.data());
         else liveStates.delete(id);
         rebuild(id);
       }, fail));
@@ -107,6 +108,7 @@
   function watchGuestInvite(token) {
     const ref = fsMod.doc(db, ...BASE, 'invites', token);
     listeners.set('guest:invite', fsMod.onSnapshot(ref, snap => {
+      touch();
       if (!snap.exists() || !snap.data().active) return guestAccessStopped();
       if (guestExpiryTimer) clearTimeout(guestExpiryTimer);
       const remaining = snap.data().expiresAt.toMillis() - Date.now();
@@ -129,6 +131,7 @@
       if (role !== 'guest' || guestMatchId !== matchId || document.visibilityState === 'hidden') return;
       try {
         const snap = await fsMod.getDoc(liveRef(matchId));
+        touch();
         const next = snap.exists() ? snap.data() : null;
         const prev = liveStates.get(matchId) || null;
         if (!sameLiveState(prev,next)) {
@@ -136,7 +139,7 @@
           rebuild(matchId);
         }
       } catch (e) { console.warn('RCSQ live poll', e); }
-    }, 2000);
+    }, 1500);
   }
   function observeGuest(matchId, token) {
     guestMatchId = matchId;
@@ -146,10 +149,12 @@
   }
   function observeAdmin() {
     unsubscribeMatches = fsMod.onSnapshot(fsMod.collection(db, ...BASE, 'matches'), snap => {
+      touch();
       for (const d of snap.docs) { matches.set(d.id, d.data()); watchMatch(d.id, 'admin'); }
       notify();
     }, fail);
     unsubscribeInvites = fsMod.onSnapshot(fsMod.collection(db, ...BASE, 'invites'), snap => {
+      touch();
       invites.clear(); for (const d of snap.docs) invites.set(d.id, d.data()); notify();
     }, fail);
   }
@@ -162,7 +167,7 @@
     await fsMod.setDoc(fsMod.doc(db, ...BASE, 'guests', user.uid), {token, matchId, joinedAt:fsMod.serverTimestamp()});
     pendingToken = null;
     if (location.hash.startsWith('#invite=')) history.replaceState(null,'',location.pathname + location.search);
-    role = 'guest'; observeGuest(matchId, token); notify();
+    role = 'guest'; touch(); observeGuest(matchId, token); notify();
   }
 
   async function start(onChange,onUpdate) {
@@ -172,7 +177,7 @@
       const root='https://www.gstatic.com/firebasejs/11.10.0/';
       [appMod,authMod,fsMod] = await Promise.all(['firebase-app.js','firebase-auth.js','firebase-firestore.js'].map(x=>import(root+x)));
       const app = appMod.initializeApp({apiKey:cfg.apiKey,authDomain:cfg.authDomain,projectId:cfg.projectId,appId:cfg.appId});
-      auth = authMod.getAuth(app); db = fsMod.getFirestore(app); ready = true;
+      auth = authMod.getAuth(app); db = fsMod.getFirestore(app); ready = true; touch();
       try { await authMod.setPersistence(auth, authMod.browserLocalPersistence); } catch {}
       unsubscribeAuth = authMod.onAuthStateChanged(auth, async u => {
         clearListeners(); user = u; role = null; guestMatchId = null; lastError='';
@@ -233,6 +238,7 @@
     await fsMod.setDoc(liveRef(matchId), {
       lineup, phase:String(live.phase||'Match').slice(0,40), active:Boolean(live.active), running:Boolean(live.running), updatedAt:fsMod.serverTimestamp()
     }, {merge:true});
+    touch();
   }
 
   async function createInvite(matchId) {
@@ -268,6 +274,21 @@
       ev.playerId=pid; ev.stat=event.stat;
     } else throw Error('Événement inconnu.');
     await fsMod.addDoc(eventCol(matchId), ev);
+    touch();
+  }
+
+  async function refreshGuestState() {
+    if (!ready || role !== 'guest' || !guestMatchId) return false;
+    try {
+      const [mSnap,eSnap,lSnap] = await Promise.all([fsMod.getDoc(matchRef(guestMatchId)),fsMod.getDocs(eventCol(guestMatchId)),fsMod.getDoc(liveRef(guestMatchId))]);
+      if (!mSnap.exists()) return false;
+      touch();
+      matches.set(guestMatchId,mSnap.data());
+      events.set(guestMatchId,eSnap.docs.map(d=>d.data()));
+      if(lSnap.exists()) liveStates.set(guestMatchId,lSnap.data()); else liveStates.delete(guestMatchId);
+      rebuild(guestMatchId);
+      return true;
+    } catch(e) { console.warn('RCSQ refresh guest',e); return false; }
   }
 
   async function getSummary(matchId) {
@@ -279,9 +300,9 @@
   }
 
   window.RCSQLive = {
-    start, login, logout, publish, setLiveState, createInvite, revokeInvite, record, getSummary,
+    start, login, logout, publish, setLiveState, createInvite, revokeInvite, record, refreshGuestState, getSummary,
     get configured(){return configurationValid;}, get ready(){return ready;}, get role(){return role;}, get email(){return user?.email||'';},
-    get signedIn(){return !!user;}, get error(){return lastError;}, get invitePending(){return !!pendingToken;}, get guestMatchId(){return guestMatchId;},
+    get signedIn(){return !!user;}, get error(){return lastError;}, get lastContactAt(){return lastContactAt;}, get online(){return navigator.onLine;}, get invitePending(){return !!pendingToken;}, get guestMatchId(){return guestMatchId;},
     get matches(){return [...matches.entries()].map(([id,m])=>({id,...m,score:scores.get(id)||aggregate(m,[]),live:liveStates.get(id)||null}));},
     get invites(){return [...invites.entries()].map(([id,data])=>({id,...data}));}, hasMatch(id){return matches.has(id);}
   };
