@@ -20,3 +20,20 @@ Chaque fiche affiche : photo, numero FFR, date de naissance, classe d'age, temps
 - La remise à zéro efface temps de jeu, plaquages, essais, historique, match/plateau de test.
 - Les photos, licences, dates de naissance, notes joueurs et entraînements sont conservés.
 - Double confirmation pour éviter une suppression accidentelle.
+
+
+## V6 — QR parent / statistiques en direct
+
+- Le coach garde seul les remplacements, chronos, mi-temps et fin de match.
+- Le parent scanne un QR et voit uniquement les joueurs actuellement sur le terrain.
+- Le parent peut saisir : **PLAQUAGE +1**, **ESSAI +1** et **ESSAI ÉQUIPE ADVERSE +1**.
+- Les changements faits par le coach se synchronisent automatiquement sur l'écran du parent.
+- Le QR expire après 8 heures et peut être révoqué à la fin du match.
+- Aucune photo, date de naissance, licence FFR ou note éducateur n'est envoyée dans Firestore.
+
+### IMPORTANT avant le premier QR
+1. Dans Firebase Console > Firestore Database > Rules, remplacer les règles par le contenu du fichier `firestore.rules` puis **Publier**.
+2. Dans Firebase Authentication > Sign-in method, vérifier que **Anonymous / Anonyme** est activé pour que les parents n'aient aucun compte à créer.
+3. Le compte coach doit conserver son rôle `admin` dans `teams/rcsq-m10/members/<uid>`.
+
+Le fichier `cloud-config.js` contient uniquement la configuration Web publique du projet Firebase déjà utilisé par l'application.

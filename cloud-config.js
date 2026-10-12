@@ -1,6 +1,6 @@
-// Paramètres PUBLICS de l'application Web Firebase RCSQ M10.
-// Aucun mot de passe, clé privée ou donnée personnelle de joueur ici.
-// Connexion protégée par Firebase Authentication et les règles Cloud Firestore.
+// Configuration PUBLIQUE Firebase de l'application RCSQ M10.
+// Ces identifiants Web ne sont pas des mots de passe. La sécurité repose sur
+// Firebase Authentication + les règles Firestore fournies avec la V6.
 window.RCSQ_CLOUD_CONFIG = {
   enabled: true,
   apiKey: "AIzaSyC6iebyUjA6fk778__-bjaKBvhzom0xMME",

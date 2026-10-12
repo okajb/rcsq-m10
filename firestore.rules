@@ -1,26 +1,15 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
-    function memberPath(teamId) {
-      return /databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid);
-    }
+    function signedIn() { return request.auth != null; }
+    function memberPath(teamId) { return /databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid); }
     function isMember(teamId) {
       return signedIn() && exists(memberPath(teamId))
-        && get(memberPath(teamId)).data.role in ['admin', 'assistant'];
+        && get(memberPath(teamId)).data.role in ['admin','assistant'];
     }
-    function isAdmin(teamId) {
-      return isMember(teamId) && get(memberPath(teamId)).data.role == 'admin';
-    }
-
-    function invitePath(teamId, token) {
-      return /databases/$(database)/documents/teams/$(teamId)/invites/$(token);
-    }
-    function guestPath(teamId) {
-      return /databases/$(database)/documents/teams/$(teamId)/guests/$(request.auth.uid);
-    }
+    function isAdmin(teamId) { return isMember(teamId) && get(memberPath(teamId)).data.role == 'admin'; }
+    function invitePath(teamId, token) { return /databases/$(database)/documents/teams/$(teamId)/invites/$(token); }
+    function guestPath(teamId) { return /databases/$(database)/documents/teams/$(teamId)/guests/$(request.auth.uid); }
     function validInvitation(teamId, token, matchId) {
       return signedIn()
         && exists(invitePath(teamId, token))
@@ -34,22 +23,18 @@ service cloud.firestore {
         && get(guestPath(teamId)).data.matchId == matchId
         && validInvitation(teamId, get(guestPath(teamId)).data.token, matchId);
     }
-    function canAccessMatch(teamId, matchId) {
-      return isMember(teamId) || isGuestOf(teamId, matchId);
-    }
+    function canAccessMatch(teamId, matchId) { return isMember(teamId) || isGuestOf(teamId, matchId); }
+
     match /teams/{teamId} {
       allow read, write: if false;
+
       match /members/{memberUid} {
-        // Les membres sont créés MANUELLEMENT par l'administrateur depuis la console Firebase.
-        // Aucun membre ne peut s'ajouter lui-même ni modifier son rôle via le site.
         allow get: if signedIn() && (request.auth.uid == memberUid || isAdmin(teamId));
         allow list, create, update, delete: if false;
       }
 
       match /invites/{token} {
-        // L'URL/QR contient un jeton aléatoire de 192 bits; aucune énumération des jetons.
-        allow get: if isAdmin(teamId) || (signedIn()
-          && resource.data.active == true && resource.data.expiresAt > request.time);
+        allow get: if isAdmin(teamId) || (signedIn() && resource.data.active == true && resource.data.expiresAt > request.time);
         allow list: if isAdmin(teamId);
         allow create: if isAdmin(teamId)
           && token.matches('^[a-f0-9]{48}$')
@@ -60,14 +45,14 @@ service cloud.firestore {
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.expiresAt is timestamp
           && request.resource.data.expiresAt > request.time
-          && request.resource.data.expiresAt <= request.time + duration.value(12, 'h');
-        // Révocation possible, aucune extension de durée ni modification d'un autre champ.
+          && request.resource.data.expiresAt <= request.time + duration.value(12,'h');
         allow update: if isAdmin(teamId)
           && resource.data.active == true
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active'])
           && request.resource.data.active == false;
         allow delete: if false;
       }
+
       match /guests/{guestUid} {
         allow get: if signedIn() && (request.auth.uid == guestUid || isAdmin(teamId));
         allow list, delete: if false;
@@ -79,6 +64,7 @@ service cloud.firestore {
           && request.resource.data.joinedAt == request.time
           && validInvitation(teamId, request.resource.data.token, request.resource.data.matchId);
       }
+
       match /matches/{matchId} {
         allow get: if canAccessMatch(teamId, matchId);
         allow list: if isMember(teamId);
@@ -94,8 +80,23 @@ service cloud.firestore {
           && request.resource.data.homeScore is int && request.resource.data.homeScore >= 0
           && request.resource.data.awayScore is int && request.resource.data.awayScore >= 0
           && request.resource.data.stats is map;
-        // Pour éviter les suppressions accidentelles, le partage n'est pas modifiable depuis l'application.
         allow update, delete: if false;
+
+        match /live/{liveId} {
+          allow get: if canAccessMatch(teamId, matchId);
+          allow list: if false;
+          allow create, update: if liveId == 'state' && isAdmin(teamId)
+            && request.resource.data.keys().hasOnly(['lineup','phase','active','running','updatedAt'])
+            && request.resource.data.lineup is list
+            && request.resource.data.lineup.size() <= 7
+            && request.resource.data.phase is string
+            && request.resource.data.phase.size() <= 40
+            && request.resource.data.active is bool
+            && request.resource.data.running is bool
+            && request.resource.data.updatedAt == request.time;
+          allow delete: if false;
+        }
+
         match /events/{eventId} {
           allow get, list: if canAccessMatch(teamId, matchId);
           allow create: if canAccessMatch(teamId, matchId)
@@ -106,22 +107,23 @@ service cloud.firestore {
             && request.resource.data.delta in [-1,1]
             && (
               (request.resource.data.kind == 'score'
-                 && request.resource.data.keys().hasAll(['side'])
-                 && request.resource.data.side in ['home','away'])
+                && request.resource.data.keys().hasAll(['side'])
+                && request.resource.data.side in ['home','away']
+                && (isMember(teamId) || (isGuestOf(teamId, matchId) && request.resource.data.side == 'away')))
               ||
               (request.resource.data.kind == 'stat'
-                 && request.resource.data.keys().hasAll(['playerId','stat'])
-                 && request.resource.data.playerId is string
-                 && request.resource.data.playerId.size() <= 180
-                 && request.resource.data.stat in ['try','tackle','assist','support','steal'])
+                && request.resource.data.keys().hasAll(['playerId','stat'])
+                && request.resource.data.playerId is string
+                && request.resource.data.playerId.size() <= 180
+                && request.resource.data.stat in ['try','tackle']
+                && (isMember(teamId) || (isGuestOf(teamId, matchId)
+                  && exists(/databases/$(database)/documents/teams/$(teamId)/matches/$(matchId)/live/state)
+                  && request.resource.data.playerId in get(/databases/$(database)/documents/teams/$(teamId)/matches/$(matchId)/live/state).data.lineup)))
             );
-          // Historique append-only : une correction s'effectue par un nouvel événement négatif.
           allow update, delete: if false;
         }
       }
     }
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    match /{document=**} { allow read, write: if false; }
   }
 }

@@ -1,6 +1,6 @@
 (() => {
   const LS_KEY = 'rcsq-m10-coach-v2'; // même clé pour préserver les données existantes
-  const APP_VERSION = '5.1';
+  const APP_VERSION = '6.0';
   const names = Array.from({length:11},(_,i)=>`Joueur ${i+1}`);
 
   const FFR_SOURCE = 'FFR • Séance atelier n°1 • octobre 2026';
@@ -81,6 +81,8 @@
   let state = loadAndMigrate();
   let tickTimer = null;
   let wakeLock = null;
+  let pendingShareAfterLogin = false;
+  const assistantActionLog = [];
 
   const content = document.getElementById('content');
   const title = document.getElementById('pageTitle');
@@ -88,6 +90,8 @@
   const modalContent = document.getElementById('modalContent');
   const toast = document.getElementById('toast');
   const nav = [...document.querySelectorAll('.nav-item')];
+  const topbar = document.querySelector('.topbar');
+  const bottomNav = document.querySelector('.bottom-nav');
 
   function loadAndMigrate(){
     let raw=null;
@@ -121,6 +125,8 @@
       s.currentMatch.number ||= 1;
       s.currentMatch.actionLog ||= [];
       s.currentMatch.running = Boolean(s.currentMatch.running);
+      s.currentMatch.cloudShared = Boolean(s.currentMatch.cloudShared);
+      s.currentMatch.cloudInviteUrl ||= null;
     }
     return s;
   }
@@ -149,14 +155,23 @@
       if(r.onField&&r.lastStart){r.acc=Number(r.acc||0)+Math.max(0,(now-r.lastStart)/1000);r.lastStart=null;}
     });
   }
-  function pauseMatch(){ const m=state.currentMatch;if(!m||!m.running)return; settleRunning();m.running=false;save();releaseWakeLock();render(); }
-  function resumeMatch(){ const m=state.currentMatch;if(!m||m.running)return;const now=Date.now();m.running=true;m.startedAt=now;Object.values(m.playerTimes||{}).forEach(r=>{if(r.onField)r.lastStart=now;});save();requestWakeLock();render(); }
+  function pauseMatch(){ const m=state.currentMatch;if(!m||!m.running)return; settleRunning();m.running=false;save();releaseWakeLock();syncLiveState();render(); }
+  function resumeMatch(){ const m=state.currentMatch;if(!m||m.running)return;const now=Date.now();m.running=true;m.startedAt=now;Object.values(m.playerTimes||{}).forEach(r=>{if(r.onField)r.lastStart=now;});save();requestWakeLock();syncLiveState();render(); }
 
   async function requestWakeLock(){ try{if('wakeLock'in navigator)wakeLock=await navigator.wakeLock.request('screen');}catch{} }
   async function releaseWakeLock(){ try{if(wakeLock){await wakeLock.release();wakeLock=null;}}catch{} }
   function ensureTick(){ clearInterval(tickTimer);if(state.currentMatch?.running){tickTimer=setInterval(()=>{if(state.route==='match')render();},1000);} }
 
+  function isAssistantMode(){ return Boolean(window.RCSQLive && (window.RCSQLive.invitePending || String(window.RCSQLive.role||'').startsWith('guest'))); }
   function render(){
+    if(isAssistantMode()){
+      topbar.classList.add('hidden'); bottomNav.classList.add('hidden');
+      content.classList.add('assistant-content');
+      renderAssistant();
+      clearInterval(tickTimer);
+      return;
+    }
+    topbar.classList.remove('hidden'); bottomNav.classList.remove('hidden'); content.classList.remove('assistant-content');
     title.textContent=pageTitle();
     nav.forEach(n=>n.classList.toggle('active',n.dataset.route===state.route));
     if(state.route==='home')renderHome();
@@ -230,12 +245,15 @@
     const m=state.currentMatch, now=Date.now();
     const onField=m.lineup.map(player).filter(Boolean), bench=m.bench.map(player).filter(Boolean);
     const tab=state.ui.matchTab||'terrain';
+    const cloudRole=window.RCSQLive?.role;
+    const shareLabel=m.cloudInviteUrl?'📲 Afficher le QR parent':'📲 Partager stats avec un parent';
+    const cloudBadge=m.cloudShared?'<span class="badge green">● Direct activé</span>':(cloudRole==='admin'?'<span class="badge">Coach connecté</span>':'<span class="badge yellow">Direct non connecté</span>');
     content.innerHTML=`
       <section class="score-card">
         <div class="score-top">
-          <div><div class="badge">RCSQ</div><div class="score-num">${m.score.us}</div><button class="tiny-btn" data-score="us">+1</button></div>
+          <div><div class="badge">RCSQ</div><div class="score-num">${m.score.us}</div><div class="subtitle">essais saisis</div></div>
           <div><div class="phase">Match ${m.number} • ${m.phase}</div><div class="match-clock">${fmt(matchElapsed(now))}</div></div>
-          <div><div class="badge red">ADVERSAIRE</div><div class="score-num" style="color:var(--red)">${m.score.them}</div><button class="tiny-btn red" data-score="them">+1</button></div>
+          <div><div class="badge red">ADVERSAIRE</div><div class="score-num" style="color:var(--red)">${m.score.them}</div><button class="tiny-btn red" data-score="them">+1 essai</button></div>
         </div>
         <div class="match-controls">
           <button class="btn ${m.running?'primary':'green'}" data-action="${m.running?'pause-match':'resume-match'}">${m.running?'⏸ Pause':'▶ Reprendre'}</button>
@@ -243,6 +261,7 @@
           <button class="btn danger" data-action="end-match">■ FIN MATCH</button>
         </div>
       </section>
+      <section class="card live-share-card"><div class="split-wrap"><div><strong>Parent statisticien</strong><div class="subtitle">Le parent note seulement PLAQUAGE, ESSAI et les essais adverses. Les changements restent sur ton téléphone.</div></div>${cloudBadge}</div><button class="btn white full" style="margin-top:10px" data-action="share-assistant">${shareLabel}</button></section>
       <div class="tabs"><button class="tab-btn ${tab==='terrain'?'active':''}" data-match-tab="terrain">Terrain / remplacements</button><button class="tab-btn ${tab==='stats'?'active':''}" data-match-tab="stats">Stats express</button></div>
       ${tab==='terrain'?terrainHTML(m,onField,bench,now):statsExpressHTML(m,onField,now)}
       <section class="card"><div class="split"><div><strong>Phrases coach</strong><div class="subtitle">Accès rapide pendant une pause.</div></div><button class="tiny-btn yellow" data-action="open-coach">🎤 Ouvrir</button></div></section>`;
@@ -292,7 +311,7 @@
     const lineup=[...document.querySelectorAll('[data-starter-pick].active')].map(b=>b.dataset.starterPick);
     if(lineup.length!==p.format)return showToast(`Choisis exactement ${p.format} joueurs`);
     const bench=p.rosterIds.filter(id=>!lineup.includes(id));const now=Date.now();
-    state.currentMatch={id:'m'+now,number:p.nextMatchNumber,name:`Match ${p.nextMatchNumber}`,format:p.format,phase:'1re mi-temps',running:true,startedAt:now,elapsedBefore:0,lineup,bench,score:{us:0,them:0},playerTimes:Object.fromEntries(p.rosterIds.map(id=>[id,{acc:0,onField:lineup.includes(id),lastStart:lineup.includes(id)?now:null}])),matchStats:Object.fromEntries(p.rosterIds.map(id=>[id,{plaquages:0,essais:0}])),actionLog:[]};
+    state.currentMatch={id:'m'+now,number:p.nextMatchNumber,name:`Match ${p.nextMatchNumber}`,format:p.format,phase:'1re mi-temps',running:true,startedAt:now,elapsedBefore:0,lineup,bench,score:{us:0,them:0},playerTimes:Object.fromEntries(p.rosterIds.map(id=>[id,{acc:0,onField:lineup.includes(id),lastStart:lineup.includes(id)?now:null}])),matchStats:Object.fromEntries(p.rosterIds.map(id=>[id,{plaquages:0,essais:0}])),actionLog:[],cloudShared:false,cloudInviteUrl:null};
     state.ui.matchTab='terrain';state.ui.pendingOutId=null;save();requestWakeLock();render();showToast(`Match ${p.nextMatchNumber} démarré`);
   }
 
@@ -304,38 +323,54 @@
     outR.onField=false;outR.lastStart=null;
     inR.onField=true;inR.lastStart=m.running?now:null;
     const pos=m.lineup.indexOf(outId);m.lineup[pos]=inId;m.bench=m.bench.filter(x=>x!==inId);m.bench.push(outId);
-    m.actionLog.push({type:'replace',outId,inId});state.ui.pendingOutId=null;save();render();showToast(`${player(inId).name} entre`);
+    m.actionLog.push({type:'replace',outId,inId});state.ui.pendingOutId=null;save();syncLiveState();render();showToast(`${player(inId).name} entre`);
   }
 
-  function addStat(pid,key){
+  async function addStat(pid,key){
     const m=state.currentMatch;if(!m||!m.matchStats[pid])return;
+    if(m.cloudShared && window.RCSQLive?.role==='admin'){
+      try{await window.RCSQLive.record(m.id,{kind:'stat',stat:key==='essais'?'try':'tackle',playerId:pid,delta:1});m.actionLog.push({type:'cloud-stat',pid,key,delta:1});save();navigator.vibrate?.(20);}catch(e){showToast(e.message||'Erreur direct');}
+      return;
+    }
     m.matchStats[pid][key]=(m.matchStats[pid][key]||0)+1;
     player(pid).stats[key]=(player(pid).stats[key]||0)+1;
-    m.actionLog.push({type:'stat',pid,key});save();render();
+    if(key==='essais')m.score.us+=1;
+    m.actionLog.push({type:'stat',pid,key});save();render();navigator.vibrate?.(20);
   }
-  function undo(){
+  async function undo(){
     const m=state.currentMatch;if(!m)return;
-    const last=[...m.actionLog].reverse().find(x=>x.type==='stat');
+    const last=[...m.actionLog].reverse().find(x=>['stat','cloud-stat'].includes(x.type));
     if(!last)return showToast('Aucune stat à annuler');
-    const idx=m.actionLog.lastIndexOf(last);m.actionLog.splice(idx,1);m.matchStats[last.pid][last.key]=Math.max(0,m.matchStats[last.pid][last.key]-1);player(last.pid).stats[last.key]=Math.max(0,player(last.pid).stats[last.key]-1);save();render();showToast('Stat annulée');
+    const idx=m.actionLog.lastIndexOf(last);m.actionLog.splice(idx,1);
+    if(last.type==='cloud-stat' && m.cloudShared && window.RCSQLive?.role==='admin'){
+      try{await window.RCSQLive.record(m.id,{kind:'stat',stat:last.key==='essais'?'try':'tackle',playerId:last.pid,delta:-1});save();}catch(e){showToast(e.message||'Erreur direct');}return;
+    }
+    m.matchStats[last.pid][last.key]=Math.max(0,m.matchStats[last.pid][last.key]-1);player(last.pid).stats[last.key]=Math.max(0,player(last.pid).stats[last.key]-1);if(last.key==='essais')m.score.us=Math.max(0,m.score.us-1);save();render();showToast('Stat annulée');
   }
 
   function doHalfTime(){
     const m=state.currentMatch;if(!m)return;
     if(m.running)pauseMatch();
-    m.phase=m.phase==='1re mi-temps'?'2e mi-temps':m.phase;save();
+    m.phase=m.phase==='1re mi-temps'?'2e mi-temps':m.phase;save();syncLiveState();
     openCoach('Mi-temps',true);
   }
 
-  function endMatch(){
+  async function endMatch(){
     const m=state.currentMatch;if(!m)return;
     if(!confirm(`Terminer définitivement le Match ${m.number} ?`))return;
+    if(m.cloudShared && window.RCSQLive?.ready){
+      try{const fresh=await window.RCSQLive.getSummary(m.id);if(fresh)applyCloudAggregate(m.id,fresh);}catch{}
+    }
     const now=Date.now();if(m.running){settleRunning(now);m.running=false;}
     const duration=m.elapsedBefore;
     Object.entries(m.playerTimes).forEach(([pid,r])=>{if(r.acc>0){player(pid).totalSeconds+=r.acc;player(pid).stats.matches+=1;}});
     const rec={name:`${state.currentPlateau?.name||'Plateau'} • Match ${m.number}`,matchNumber:m.number,date:new Date().toLocaleDateString('fr-FR'),score:{...m.score},duration,playerTimes:Object.fromEntries(Object.entries(m.playerTimes).map(([id,r])=>[id,r.acc])),stats:structuredClone(m.matchStats)};
     state.history.unshift(rec);
     if(state.currentPlateau){state.currentPlateau.matches.unshift(rec);state.currentPlateau.nextMatchNumber=m.number+1;}
+    if(m.cloudShared && window.RCSQLive?.role==='admin'){
+      try{await window.RCSQLive.setLiveState(m.id,{lineup:m.lineup,phase:'Terminé',active:false,running:false});}catch{}
+      const token=inviteTokenFromUrl(m.cloudInviteUrl);if(token){try{await window.RCSQLive.revokeInvite(token);}catch{}}
+    }
     state.currentMatch=null;state.ui.pendingOutId=null;save();releaseWakeLock();render();openCoach('Fin de match',true);
   }
 
@@ -366,6 +401,83 @@
   function editRoster(){
     const p=state.currentPlateau;modal.hidden=false;modalContent.innerHTML=`<div class="title-row"><div><strong>Présence plateau</strong><div class="subtitle">Seuls les joueurs cochés seront disponibles aux matchs suivants.</div></div><button class="tiny-btn" data-close-modal>✕</button></div><div class="player-pick-grid">${state.players.map(pl=>`<button class="pick-btn ${p.rosterIds.includes(pl.id)?'active':''}" data-edit-roster-pick="${pl.id}">${pl.name}</button>`).join('')}</div><button class="btn primary full" style="margin-top:12px" data-action="save-roster">Enregistrer</button>`;
   }
+
+  function inviteTokenFromUrl(url){try{return (new URL(url||'',location.href).hash.match(/^#invite=([a-f0-9]{48})$/)||[])[1]||null}catch{return null}}
+  async function syncLiveState(){
+    const m=state.currentMatch;if(!m?.cloudShared||window.RCSQLive?.role!=='admin')return;
+    try{await window.RCSQLive.setLiveState(m.id,{lineup:m.lineup,phase:m.phase,active:true,running:m.running});}catch(e){console.warn(e);}
+  }
+  function onCloudChange(){
+    if(pendingShareAfterLogin && window.RCSQLive?.role==='admin'){pendingShareAfterLogin=false;modal.hidden=true;openShareAssistant();return;}
+    render();
+  }
+  function applyCloudAggregate(matchId,result){
+    const m=state.currentMatch;if(!m||m.id!==matchId)return;
+    for(const [pid,st] of Object.entries(result.stats||{})){
+      if(!m.matchStats[pid])continue;
+      const newP=Number(st.tackle||0),newE=Number(st.try||0);
+      const dP=newP-Number(m.matchStats[pid].plaquages||0),dE=newE-Number(m.matchStats[pid].essais||0);
+      m.matchStats[pid].plaquages=newP;m.matchStats[pid].essais=newE;
+      if(player(pid)){player(pid).stats.plaquages=Math.max(0,player(pid).stats.plaquages+dP);player(pid).stats.essais=Math.max(0,player(pid).stats.essais+dE);}
+    }
+    m.score.us=Number(result.homeScore||0);m.score.them=Number(result.awayScore||0);save();
+    if(!isAssistantMode()&&state.route==='match')render();
+  }
+  async function coachScore(side){
+    const m=state.currentMatch;if(!m)return;
+    if(m.cloudShared&&window.RCSQLive?.role==='admin'){
+      try{await window.RCSQLive.record(m.id,{kind:'score',side:side==='them'?'away':'home',delta:1});m.actionLog.push({type:'cloud-score',side});save();}catch(e){showToast(e.message||'Erreur direct');}
+    }else{m.score[side]+=1;m.actionLog.push({type:'score',side});save();render();}
+  }
+  function openCloudLogin(){
+    modal.hidden=false;
+    const email=localStorage.getItem('rcsq-cloud-email')||'';
+    modalContent.innerHTML=`<div class="title-row"><div><strong>Connexion coach</strong><div class="subtitle">Une seule fois sur ton iPhone. Les parents n'ont aucun compte à créer.</div></div><button class="tiny-btn" data-close-modal>✕</button></div><div class="form-grid"><div><label>E-mail Firebase du coach</label><input id="cloudEmail" class="input" type="email" autocomplete="username" value="${email}"></div><div><label>Mot de passe</label><input id="cloudPassword" class="input" type="password" autocomplete="current-password"></div><button class="btn blue full" data-action="cloud-login">Se connecter et créer le QR</button></div>${window.RCSQLive?.error?`<div class="danger-note" style="margin-top:10px">${window.RCSQLive.error}</div>`:''}`;
+  }
+  async function doCloudLogin(){
+    const email=document.getElementById('cloudEmail')?.value||'',password=document.getElementById('cloudPassword')?.value||'';
+    if(!email||!password)return showToast('E-mail et mot de passe nécessaires');
+    try{pendingShareAfterLogin=true;localStorage.setItem('rcsq-cloud-email',email);await window.RCSQLive.login(email,password);showToast('Connexion réussie');}catch(e){pendingShareAfterLogin=false;showToast(e.message||'Connexion impossible');}
+  }
+  async function openShareAssistant(){
+    const m=state.currentMatch;if(!m)return showToast('Démarre un match d’abord');
+    if(!window.RCSQLive?.configured)return showToast('Mode direct non configuré');
+    if(!window.RCSQLive.ready)return showToast('Connexion au direct en cours…');
+    if(window.RCSQLive.role!=='admin'){pendingShareAfterLogin=true;openCloudLogin();return;}
+    try{
+      if(!m.cloudShared){
+        const roster=(state.currentPlateau?.rosterIds||Object.keys(m.matchStats)).map(id=>player(id)).filter(Boolean);
+        await window.RCSQLive.publish({id:m.id,title:`${state.currentPlateau?.name||'Plateau'} • Match ${m.number}`,opponent:'Adversaire',date:new Date().toISOString().slice(0,10),format:m.format,homeScore:m.score.us,awayScore:m.score.them,stats:Object.fromEntries(roster.map(p=>[p.id,{try:m.matchStats[p.id]?.essais||0,tackle:m.matchStats[p.id]?.plaquages||0}]))},roster.map(p=>({id:p.id,firstName:p.name})));
+        m.cloudShared=true;save();await syncLiveState();
+      }
+      if(!m.cloudInviteUrl){m.cloudInviteUrl=await window.RCSQLive.createInvite(m.id);save();}
+      showInviteModal(m.cloudInviteUrl);
+    }catch(e){showToast(e.message||'Impossible de créer le QR');}
+  }
+  function showInviteModal(url){
+    modal.hidden=false;
+    modalContent.innerHTML=`<div class="title-row"><div><strong>QR parent — statistiques</strong><div class="subtitle">Valable 8 heures. Le parent peut seulement noter plaquages, essais et essais adverses.</div></div><button class="tiny-btn" data-close-modal>✕</button></div><div id="qrBox" class="qr-box"></div><div class="success-note" style="margin-top:10px">Les changements, chronos, licences et photos restent uniquement chez toi.</div><div class="chips" style="margin-top:12px;justify-content:center"><button class="btn blue" data-action="native-share-invite" data-url="${url}">Partager le lien</button><button class="btn ghost" data-action="copy-invite" data-url="${url}">Copier</button></div><div class="invite-url">${url}</div>`;
+    setTimeout(()=>{const box=document.getElementById('qrBox');if(!box)return;if(window.QRCode){box.innerHTML='';new QRCode(box,{text:url,width:220,height:220,colorDark:'#08285c',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});}else box.innerHTML='<div class="warning">QR indisponible : utilise le bouton Partager le lien.</div>';},50);
+  }
+  async function copyInviteLink(url){try{await navigator.clipboard.writeText(url);showToast('Lien copié');}catch{showToast('Copie impossible');}}
+  async function shareInviteLink(url){try{if(navigator.share)await navigator.share({title:'RCSQ M10 — stats parent',text:'Scanne/ouvre ce lien pour noter les stats du match.',url});else await copyInviteLink(url);}catch{}}
+
+  function renderAssistant(){
+    const live=window.RCSQLive;
+    if(!live){content.innerHTML='<section class="card">Mode parent indisponible.</section>';return;}
+    if(live.invitePending || (live.ready&&!live.signedIn)){content.innerHTML=`<div class="assistant-head"><img src="assets/rcsq-logo.png" alt="RCSQ"><div><strong>RCSQ M10</strong><span>Connexion au match…</span></div></div><section class="card center"><div class="assistant-loader">🏉</div><strong>Ouverture du mode statistiques parent…</strong><div class="subtitle" style="margin-top:8px">Aucun compte à créer.</div></section>`;return;}
+    if(live.error && live.role!=='guest'){content.innerHTML=`<div class="assistant-head"><img src="assets/rcsq-logo.png" alt="RCSQ"><div><strong>RCSQ M10</strong><span>Mode parent</span></div></div><section class="card"><div class="danger-note">${live.error}</div></section>`;return;}
+    const id=live.guestMatchId,m=live.matches.find(x=>x.id===id);
+    if(!m){content.innerHTML=`<div class="assistant-head"><img src="assets/rcsq-logo.png" alt="RCSQ"><div><strong>RCSQ M10</strong><span>Mode parent</span></div></div><section class="card center"><strong>Chargement du match…</strong></section>`;return;}
+    const lineup=m.live?.lineup||[];const map=new Map((m.roster||[]).map(p=>[p.id,p]));const active=lineup.map(id=>map.get(id)).filter(Boolean);const enabled=m.live?.active!==false;
+    content.innerHTML=`<div class="assistant-head"><img src="assets/rcsq-logo.png" alt="RCSQ"><div><strong>RCSQ M10 — STATISTIQUES</strong><span>${m.title||'Match'} • ${m.live?.phase||'En direct'}</span></div></div><section class="assistant-score"><div><span>RCSQ</span><b>${m.score.homeScore}</b></div><div class="live-dot">${enabled?'● EN DIRECT':'■ TERMINÉ'}</div><div><span>ADVERSAIRE</span><b>${m.score.awayScore}</b></div></section><div class="assistant-rule">Tu notes seulement les stats. <strong>Les changements sont gérés par le coach.</strong></div><section class="assistant-pitch"><div class="assistant-field-title">Joueurs actuellement sur le terrain</div><div class="assistant-grid">${active.map(p=>{const st=m.score.stats?.[p.id]||{};return `<article class="assistant-player"><div class="assistant-ident"><div class="assistant-avatar">${String(p.firstName||'?').slice(0,1)}</div><strong>${p.firstName}</strong></div><div class="assistant-two"><button ${enabled?'':'disabled'} data-assistant-stat="tackle" data-player="${p.id}" class="assistant-stat tackle">PLAQUAGE +1<span>${st.tackle||0}</span></button><button ${enabled?'':'disabled'} data-assistant-stat="try" data-player="${p.id}" class="assistant-stat try">ESSAI +1<span>${st.try||0}</span></button></div></article>`}).join('')||'<div class="warning">La composition terrain va apparaître dès que le coach active le direct.</div>'}</div></section><section class="card"><button class="assistant-away" ${enabled?'':'disabled'} data-action="assistant-away-try">ESSAI ÉQUIPE ADVERSE +1 <span>${m.score.awayScore}</span></button><button class="btn ghost full" style="margin-top:10px" data-action="assistant-undo">↶ Annuler ma dernière saisie</button></section>`;
+  }
+  async function assistantRecordStat(pid,stat){
+    const live=window.RCSQLive,id=live?.guestMatchId;if(!id)return;
+    try{await live.record(id,{kind:'stat',stat,playerId:pid,delta:1});assistantActionLog.push({kind:'stat',stat,playerId:pid});navigator.vibrate?.(25);showToast(stat==='try'?'Essai ajouté':'Plaquage ajouté');}catch(e){showToast(e.message||'Saisie impossible');}
+  }
+  async function assistantAwayTry(){const live=window.RCSQLive,id=live?.guestMatchId;if(!id)return;try{await live.record(id,{kind:'score',side:'away',delta:1});assistantActionLog.push({kind:'score',side:'away'});navigator.vibrate?.(25);showToast('Essai adverse ajouté');}catch(e){showToast(e.message||'Saisie impossible');}}
+  async function assistantUndo(){const a=assistantActionLog.pop();if(!a)return showToast('Rien à annuler');try{await window.RCSQLive.record(window.RCSQLive.guestMatchId,{...a,delta:-1});showToast('Dernière saisie annulée');}catch(e){assistantActionLog.push(a);showToast(e.message||'Annulation impossible');}}
 
   function calcEquipment(){const out={};state.selectedTraining.forEach(id=>{const ex=trainingLibrary.find(x=>x.id===id);if(!ex)return;Object.entries(ex.equipment).forEach(([k,v])=>out[k]=(out[k]||0)+v)});return out;}
   function loadFFRTemplate(){state.selectedTraining=['ffr-freeze','ffr-t2s','ffr-lutte4','ffr-jco'];save();render();showToast('Séance FFR chargée');}
@@ -416,13 +528,21 @@
     if(t.dataset.action==='end-match')endMatch();
     if(t.dataset.action==='resume-from-coach'){modal.hidden=true;resumeMatch();}
     if(t.dataset.action==='back-to-plateau'){modal.hidden=true;render();}
-    if(t.dataset.score){state.currentMatch.score[t.dataset.score]+=1;state.currentMatch.actionLog.push({type:'score',side:t.dataset.score});save();render();}
+    if(t.dataset.score)coachScore(t.dataset.score);
     if(t.dataset.matchTab){state.ui.matchTab=t.dataset.matchTab;state.ui.pendingOutId=null;save();render();}
     if(t.dataset.fieldPlayer){state.ui.pendingOutId=state.ui.pendingOutId===t.dataset.fieldPlayer?null:t.dataset.fieldPlayer;save();render();}
     if(t.dataset.benchPlayer){if(!state.ui.pendingOutId)return showToast('Touche d’abord le joueur qui sort');replacePlayer(state.ui.pendingOutId,t.dataset.benchPlayer);}
     if(t.dataset.action==='cancel-replace'){state.ui.pendingOutId=null;save();render();}
     if(t.dataset.stat&&t.dataset.player)addStat(t.dataset.player,t.dataset.stat);
     if(t.dataset.action==='undo')undo();
+    if(t.dataset.action==='share-assistant')openShareAssistant();
+    if(t.dataset.action==='cloud-login')doCloudLogin();
+    if(t.dataset.action==='cloud-logout')window.RCSQLive?.logout();
+    if(t.dataset.action==='copy-invite')copyInviteLink(t.dataset.url);
+    if(t.dataset.action==='native-share-invite')shareInviteLink(t.dataset.url);
+    if(t.dataset.assistantStat&&t.dataset.player)assistantRecordStat(t.dataset.player,t.dataset.assistantStat);
+    if(t.dataset.action==='assistant-away-try')assistantAwayTry();
+    if(t.dataset.action==='assistant-undo')assistantUndo();
 
     if(t.dataset.action==='open-library')openLibrary();
     if(t.dataset.openEx)openExercise(t.dataset.openEx);
@@ -443,4 +563,5 @@
 
   if('serviceWorker'in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));}
   render();
+  if(window.RCSQLive){window.RCSQLive.start(onCloudChange,applyCloudAggregate).catch?.(()=>{});}
 })();
